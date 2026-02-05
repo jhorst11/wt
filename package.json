@@ -26,9 +26,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jhorst/wt.git"
+    "url": "https://github.com/jhorst11/wt.git"
   },
-  "homepage": "https://github.com/jhorst/wt#readme",
+  "homepage": "https://github.com/jhorst11å/wt#readme",
   "engines": {
     "node": ">=18"
   },

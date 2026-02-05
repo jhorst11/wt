@@ -213,12 +213,34 @@ export async function branchExistsRemote(branchName, cwd = process.cwd()) {
 export async function ensureBranch(branchName, baseBranch = null, cwd = process.cwd()) {
   const git = await getGit(cwd);
 
+  // If baseBranch is a remote ref, fetch it first to ensure it's up to date
+  if (baseBranch && baseBranch.startsWith('origin/')) {
+    const remoteBranchName = baseBranch.replace('origin/', '');
+    await git.fetch(['origin', `${remoteBranchName}:refs/remotes/origin/${remoteBranchName}`]).catch(() => {});
+  }
+
   // Check if branch exists locally
   if (await branchExistsLocal(branchName, cwd)) {
+    // If we have a remote baseBranch, update local branch to match it
+    if (baseBranch && baseBranch.startsWith('origin/')) {
+      try {
+        const localSha = (await git.revparse([branchName])).trim();
+        const remoteSha = (await git.revparse([baseBranch])).trim();
+
+        if (localSha !== remoteSha) {
+          // Local branch exists but points to different commit than remote
+          // Reset the local branch to match the remote
+          await git.branch(['-f', branchName, baseBranch]);
+          return { created: false, source: 'updated-from-remote' };
+        }
+      } catch {
+        // If we can't compare, fall through to use local as-is
+      }
+    }
     return { created: false, source: 'local' };
   }
 
-  // Check if branch exists on remote
+  // Check if branch exists on remote (with same name as branchName)
   if (await branchExistsRemote(branchName, cwd)) {
     await git.fetch(['origin', `${branchName}:${branchName}`]);
     return { created: false, source: 'remote' };
@@ -226,11 +248,6 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
 
   // Create new branch from base
   if (baseBranch) {
-    // If baseBranch is remote, make sure we have it locally
-    if (baseBranch.startsWith('origin/')) {
-      const localName = baseBranch.replace('origin/', '');
-      await git.fetch(['origin', localName]).catch(() => {});
-    }
     await git.branch([branchName, baseBranch]);
   } else {
     await git.branch([branchName]);

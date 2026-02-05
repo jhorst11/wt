@@ -320,6 +320,8 @@ export async function createWorktreeFlow() {
     success(`Created worktree at ${colors.path(result.path)}`);
     if (result.branchCreated) {
       success(`Created new branch ${colors.branch(branchName)}`);
+    } else if (result.branchSource === 'updated-from-remote') {
+      info(`Updated branch ${colors.branch(branchName)} to match remote`);
     } else {
       info(`Using existing branch ${colors.branch(branchName)} (${result.branchSource})`);
     }

@@ -26,9 +26,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jhorst/wt-cli.git"
+    "url": "https://github.com/jhorst/wt.git"
   },
-  "homepage": "https://github.com/jhorst/wt-cli#readme",
+  "homepage": "https://github.com/jhorst/wt#readme",
   "engines": {
     "node": ">=18"
   },

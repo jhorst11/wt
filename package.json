@@ -1,11 +1,16 @@
 {
-  "name": "@jhorstwt-cli",
+  "name": "@jhorst11/wt-cli",
   "version": "1.0.0",
   "description": "🌳 Beautiful interactive git worktree manager",
   "type": "module",
   "bin": {
     "wt": "./bin/wt.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "shell"
+  ],
   "scripts": {
     "start": "node bin/wt.js"
   },
@@ -13,10 +18,20 @@
     "git",
     "worktree",
     "cli",
-    "interactive"
+    "interactive",
+    "terminal",
+    "workflow"
   ],
-  "author": "",
+  "author": "Justin Horst",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jhorst/wt-cli.git"
+  },
+  "homepage": "https://github.com/jhorst/wt-cli#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
     "chalk": "^5.3.0",

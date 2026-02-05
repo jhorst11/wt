@@ -299,3 +299,53 @@ export function isValidBranchName(name) {
   if (/[\s~^:?*\[\]\\]/.test(name)) return false;
   return true;
 }
+
+export async function mergeBranch(sourceBranch, targetBranch = null, cwd = process.cwd()) {
+  const git = await getGit(cwd);
+
+  // If target specified, checkout to it first
+  if (targetBranch) {
+    await git.checkout(targetBranch);
+  }
+
+  // Merge the source branch
+  const result = await git.merge([sourceBranch, '--no-edit']);
+
+  return {
+    success: true,
+    merged: sourceBranch,
+    into: targetBranch || await getCurrentBranch(cwd),
+    result,
+  };
+}
+
+export async function getMainBranch(cwd = process.cwd()) {
+  const git = await getGit(cwd);
+
+  // Try common main branch names
+  const candidates = ['main', 'master', 'develop'];
+  const branches = await getLocalBranches(cwd);
+  const branchNames = branches.map(b => b.name);
+
+  for (const candidate of candidates) {
+    if (branchNames.includes(candidate)) {
+      return candidate;
+    }
+  }
+
+  // Fall back to first branch
+  return branchNames[0] || 'main';
+}
+
+export async function hasUncommittedChanges(cwd = process.cwd()) {
+  const git = await getGit(cwd);
+  const status = await git.status();
+  return !status.isClean();
+}
+
+export async function deleteBranch(branchName, force = false, cwd = process.cwd()) {
+  const git = await getGit(cwd);
+  const flag = force ? '-D' : '-d';
+  await git.branch([flag, branchName]);
+  return { success: true };
+}

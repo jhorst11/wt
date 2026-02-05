@@ -22,7 +22,7 @@ export const icons = {
   bullet: figures.bullet,
   star: '⭐',
   git: '󰊢',
-  plus: figures.plus,
+  plus: '➕',
   warning: '⚠️',
   info: 'ℹ️',
   remote: '☁️',

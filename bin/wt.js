@@ -6,10 +6,12 @@ import {
   createWorktreeFlow,
   listWorktrees,
   removeWorktreeFlow,
+  mergeWorktreeFlow,
   goHome,
   goToWorktree,
 } from '../src/commands.js';
 import { showHelp, showLogo, spacer, colors } from '../src/ui.js';
+import { setupCommand } from '../src/setup.js';
 
 program
   .name('wt')
@@ -34,6 +36,11 @@ program
   .action(removeWorktreeFlow);
 
 program
+  .command('merge')
+  .description('Merge a worktree branch back to main')
+  .action(mergeWorktreeFlow);
+
+program
   .command('home')
   .description('Return to the main repository')
   .action(goHome);
@@ -42,6 +49,11 @@ program
   .command('go [name]')
   .description('Jump to a worktree (interactive if no name)')
   .action(goToWorktree);
+
+program
+  .command('setup')
+  .description('Configure shell integration for directory jumping')
+  .action(setupCommand);
 
 // Default action (no command = interactive menu)
 program.action(async () => {
@@ -59,7 +71,9 @@ program.on('--help', () => {
   console.log(`  ${colors.muted('$')} wt new          ${colors.muted('# Create new worktree')}`);
   console.log(`  ${colors.muted('$')} wt list         ${colors.muted('# List all worktrees')}`);
   console.log(`  ${colors.muted('$')} wt go feature-x ${colors.muted('# Jump to worktree')}`);
+  console.log(`  ${colors.muted('$')} wt merge        ${colors.muted('# Merge worktree to main')}`);
   console.log(`  ${colors.muted('$')} wt home         ${colors.muted('# Return to main repo')}`);
+  console.log(`  ${colors.muted('$')} wt setup        ${colors.muted('# Configure shell integration')}`);
   spacer();
 });
 

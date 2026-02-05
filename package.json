@@ -1,5 +1,5 @@
 {
-  "name": "wt-cli",
+  "name": "@jhorstwt-cli",
   "version": "1.0.0",
   "description": "🌳 Beautiful interactive git worktree manager",
   "type": "module",

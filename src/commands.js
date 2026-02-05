@@ -18,6 +18,7 @@ import {
   icons,
   formatBranchChoice,
 } from './ui.js';
+import { showCdHint } from './setup.js';
 import {
   isGitRepo,
   getRepoRoot,
@@ -33,6 +34,10 @@ import {
   isValidBranchName,
   getConfig,
   getWorktreesBase,
+  mergeBranch,
+  getMainBranch,
+  hasUncommittedChanges,
+  deleteBranch,
 } from './git.js';
 
 async function ensureGitRepo() {
@@ -84,6 +89,11 @@ export async function mainMenu() {
       value: 'go',
       description: 'Switch to an existing worktree',
     });
+    choices.splice(3, 0, {
+      name: `🔀  Merge worktree`,
+      value: 'merge',
+      description: 'Merge a worktree branch back to main',
+    });
   }
 
   choices.push({
@@ -111,6 +121,9 @@ export async function mainMenu() {
       break;
     case 'remove':
       await removeWorktreeFlow();
+      break;
+    case 'merge':
+      await mergeWorktreeFlow();
       break;
     case 'home':
       await goHome();
@@ -311,14 +324,7 @@ export async function createWorktreeFlow() {
       info(`Using existing branch ${colors.branch(branchName)} (${result.branchSource})`);
     }
 
-    spacer();
-    console.log(
-      `  ${icons.rocket} ${colors.muted('To switch to it, run:')} ${colors.primary(`cd "${result.path}"`)}`
-    );
-    spacer();
-
-    // Output path for shell integration
-    console.log(`__WT_CD__:${result.path}`);
+    showCdHint(result.path);
   } catch (err) {
     spinner.fail(colors.error('Failed to create worktree'));
     error(err.message);
@@ -443,31 +449,228 @@ export async function removeWorktreeFlow() {
   }
 }
 
+export async function mergeWorktreeFlow() {
+  showMiniLogo();
+  await ensureGitRepo();
+
+  heading(`🔀 Merge Worktree`);
+
+  const repoRoot = await getRepoRoot();
+  const mainPath = await getMainRepoPath();
+  const worktrees = await getWorktreesInBase(repoRoot);
+  const currentPath = process.cwd();
+  const isAtHome = currentPath === mainPath;
+
+  if (worktrees.length === 0) {
+    info('No worktrees found to merge');
+    spacer();
+    return;
+  }
+
+  // Select worktree to merge
+  const wtChoices = worktrees.map((wt) => ({
+    name: `${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}`,
+    value: wt,
+    description: wt.path,
+  }));
+
+  wtChoices.push({
+    name: `${colors.muted(icons.cross + '  Cancel')}`,
+    value: null,
+  });
+
+  const selectedWt = await select({
+    message: 'Select worktree to merge:',
+    choices: wtChoices,
+    theme: { prefix: '🔀' },
+  });
+
+  if (!selectedWt) {
+    info('Cancelled');
+    return;
+  }
+
+  // Select target branch
+  const mainBranch = await getMainBranch(mainPath);
+  const currentBranch = await getCurrentBranch();
+  const localBranches = await getLocalBranches(mainPath);
+
+  const targetChoices = [];
+
+  // Add main branch first if it exists
+  if (localBranches.some(b => b.name === mainBranch)) {
+    targetChoices.push({
+      name: `${icons.home}  ${colors.branch(mainBranch)} ${colors.muted('(main branch)')}`,
+      value: mainBranch,
+    });
+  }
+
+  // Add current branch if different and we're at home
+  if (isAtHome && currentBranch && currentBranch !== mainBranch) {
+    targetChoices.push({
+      name: `${icons.pointer}  ${colors.branch(currentBranch)} ${colors.muted('(current)')}`,
+      value: currentBranch,
+    });
+  }
+
+  // Add other branches
+  for (const branch of localBranches) {
+    if (branch.name !== mainBranch && branch.name !== currentBranch) {
+      targetChoices.push({
+        name: `${icons.branch}  ${colors.branch(branch.name)}`,
+        value: branch.name,
+      });
+    }
+  }
+
+  targetChoices.push({
+    name: `${colors.muted(icons.cross + '  Cancel')}`,
+    value: null,
+  });
+
+  spacer();
+  const targetBranch = await select({
+    message: `Merge ${colors.highlight(selectedWt.branch)} into:`,
+    choices: targetChoices,
+    theme: { prefix: icons.arrowRight },
+  });
+
+  if (!targetBranch) {
+    info('Cancelled');
+    return;
+  }
+
+  // Check for uncommitted changes in main repo
+  if (await hasUncommittedChanges(mainPath)) {
+    spacer();
+    warning('Main repository has uncommitted changes!');
+    const proceed = await confirm({
+      message: 'Stash changes and continue?',
+      default: false,
+    });
+
+    if (!proceed) {
+      info('Cancelled. Commit or stash your changes first.');
+      return;
+    }
+
+    // Stash changes
+    const { simpleGit } = await import('simple-git');
+    const git = simpleGit(mainPath);
+    await git.stash();
+    info('Changes stashed');
+  }
+
+  // Confirm merge
+  spacer();
+  divider();
+  info(`From: ${colors.highlight(selectedWt.branch)} ${colors.muted(`(${selectedWt.name})`)}`);
+  info(`Into: ${colors.branch(targetBranch)}`);
+  divider();
+  spacer();
+
+  const confirmed = await confirm({
+    message: 'Proceed with merge?',
+    default: true,
+    theme: { prefix: '🔀' },
+  });
+
+  if (!confirmed) {
+    info('Cancelled');
+    return;
+  }
+
+  // Perform merge
+  const spinner = ora({
+    text: 'Merging...',
+    color: 'magenta',
+  }).start();
+
+  try {
+    await mergeBranch(selectedWt.branch, targetBranch, mainPath);
+    spinner.succeed(colors.success('Merged successfully!'));
+    spacer();
+    success(`Merged ${colors.highlight(selectedWt.branch)} into ${colors.branch(targetBranch)}`);
+
+    // Ask about cleanup
+    spacer();
+    const cleanup = await confirm({
+      message: `Remove the worktree "${selectedWt.name}" now that it's merged?`,
+      default: false,
+      theme: { prefix: icons.trash },
+    });
+
+    if (cleanup) {
+      const cleanupSpinner = ora({
+        text: 'Cleaning up...',
+        color: 'yellow',
+      }).start();
+
+      try {
+        await removeWorktree(selectedWt.path, false, mainPath);
+        cleanupSpinner.succeed(colors.success('Worktree removed'));
+
+        // Ask about deleting branch
+        const deleteBr = await confirm({
+          message: `Delete the branch "${selectedWt.branch}" too?`,
+          default: false,
+          theme: { prefix: icons.trash },
+        });
+
+        if (deleteBr) {
+          await deleteBranch(selectedWt.branch, false, mainPath);
+          success(`Branch ${colors.branch(selectedWt.branch)} deleted`);
+        }
+      } catch (err) {
+        cleanupSpinner.fail('Failed to remove worktree');
+        error(err.message);
+      }
+    }
+
+    spacer();
+    console.log(`  ${icons.sparkles} ${colors.success('All done!')}`);
+    spacer();
+
+  } catch (err) {
+    spinner.fail(colors.error('Merge failed'));
+    error(err.message);
+    spacer();
+    warning('You may need to resolve conflicts manually');
+    spacer();
+  }
+}
+
 export async function goHome() {
   showMiniLogo();
   await ensureGitRepo();
 
-  const spinner = ora({
-    text: 'Finding main repository...',
-    color: 'cyan',
-  }).start();
-
   const mainPath = await getMainRepoPath();
+  const currentPath = process.cwd();
 
   if (!mainPath) {
-    spinner.fail(colors.error('Could not find main repository'));
+    error('Could not find main repository');
     return;
   }
 
-  spinner.succeed(colors.success('Found main repository'));
-  spacer();
-  success(`Main repo: ${colors.path(mainPath)}`);
-  spacer();
-  console.log(`  ${icons.home} ${colors.muted('Run:')} ${colors.primary(`cd "${mainPath}"`)}`);
-  spacer();
+  // Check if we're already home
+  if (currentPath === mainPath || currentPath.startsWith(mainPath + '/')) {
+    const isExactlyHome = currentPath === mainPath;
+    spacer();
+    if (isExactlyHome) {
+      console.log(`  ${icons.home} ${colors.success("You're already home!")} ${icons.sparkles}`);
+    } else {
+      console.log(`  ${icons.home} ${colors.success("You're in the main repo")} ${icons.sparkles}`);
+    }
+    console.log(`  ${colors.muted('Path:')} ${colors.path(mainPath)}`);
+    spacer();
+    return;
+  }
 
-  // Output path for shell integration
-  console.log(`__WT_CD__:${mainPath}`);
+  spacer();
+  success(`Heading home... ${icons.home}`);
+  console.log(`  ${colors.muted('Path:')} ${colors.path(mainPath)}`);
+
+  showCdHint(mainPath);
 }
 
 export async function goToWorktree(name) {
@@ -528,8 +731,6 @@ export async function goToWorktree(name) {
   spacer();
   success(`Jumping to ${colors.highlight(selected.name)}`);
   console.log(`  ${colors.muted('Path:')} ${colors.path(selected.path)}`);
-  spacer();
 
-  // Output path for shell integration
-  console.log(`__WT_CD__:${selected.path}`);
+  showCdHint(selected.path);
 }

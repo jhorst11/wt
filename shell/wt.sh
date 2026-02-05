@@ -17,33 +17,21 @@ _wt_find_bin() {
 }
 
 wt() {
-  local output
-  local exit_code
   local wt_bin=$(_wt_find_bin)
+  local wt_cd_file="/tmp/wt_cd_$$"
 
-  # Run wt and capture output
-  output=$($wt_bin "$@" 2>&1)
-  exit_code=$?
+  # Clean up any old cd file
+  rm -f "$wt_cd_file"
 
-  # Check if output contains a cd directive
-  if [[ "$output" == *"__WT_CD__:"* ]]; then
-    # Extract the path and print the rest
-    local path=""
-    while IFS= read -r line; do
-      if [[ "$line" == "__WT_CD__:"* ]]; then
-        path="${line#__WT_CD__:}"
-      else
-        echo "$line"
-      fi
-    done <<< "$output"
+  # Run wt with env vars so it knows we can handle cd
+  WT_WRAPPER=1 WT_CD_FILE="$wt_cd_file" $wt_bin "$@"
+  local exit_code=$?
 
-    # Change to the directory if we got a path
-    if [[ -n "$path" && -d "$path" ]]; then
-      cd "$path" || return 1
-    fi
-  else
-    # Just print the output normally
-    echo "$output"
+  # Check if wt wrote a cd path
+  if [[ -f "$wt_cd_file" ]]; then
+    local dir=$(cat "$wt_cd_file")
+    rm -f "$wt_cd_file"
+    [[ -d "$dir" ]] && cd "$dir"
   fi
 
   return $exit_code
@@ -53,7 +41,7 @@ wt() {
 if [[ -n "$BASH_VERSION" ]]; then
   _wt_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
-    local commands="new list ls remove rm home go"
+    local commands="new list ls remove rm home go setup"
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
   }
   complete -F _wt_completions wt
@@ -70,6 +58,7 @@ if [[ -n "$ZSH_VERSION" ]]; then
       'rm:Remove a worktree'
       'home:Return to main repo'
       'go:Jump to a worktree'
+      'setup:Configure shell integration'
     )
     _describe 'command' commands
   }

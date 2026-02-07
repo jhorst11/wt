@@ -213,10 +213,37 @@ export async function branchExistsRemote(branchName, cwd = process.cwd()) {
 export async function ensureBranch(branchName, baseBranch = null, cwd = process.cwd()) {
   const git = await getGit(cwd);
 
+  // Resolve detached HEAD to the actual commit SHA so it's usable as a base
+  if (baseBranch === 'HEAD') {
+    try {
+      baseBranch = (await git.revparse(['HEAD'])).trim();
+    } catch {
+      throw new Error('HEAD does not point to a valid commit. Is this a new repository with no commits?');
+    }
+  }
+
   // If baseBranch is a remote ref, fetch it first to ensure it's up to date
   if (baseBranch && baseBranch.startsWith('origin/')) {
     const remoteBranchName = baseBranch.replace('origin/', '');
-    await git.fetch(['origin', `${remoteBranchName}:refs/remotes/origin/${remoteBranchName}`]).catch(() => {});
+    try {
+      await git.fetch(['origin', `${remoteBranchName}:refs/remotes/origin/${remoteBranchName}`]);
+    } catch (fetchErr) {
+      // Fetch failed - verify the remote ref still exists locally from a previous fetch
+      try {
+        await git.revparse(['--verify', baseBranch]);
+      } catch {
+        throw new Error(`Failed to fetch remote branch '${remoteBranchName}' and no local copy exists. The remote branch may have been deleted.`);
+      }
+    }
+  }
+
+  // If baseBranch is specified, verify it resolves to a valid ref
+  if (baseBranch) {
+    try {
+      await git.revparse(['--verify', baseBranch]);
+    } catch {
+      throw new Error(`Base branch '${baseBranch}' does not exist or is not a valid reference.`);
+    }
   }
 
   // Check if branch exists locally
@@ -228,8 +255,6 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
         const remoteSha = (await git.revparse([baseBranch])).trim();
 
         if (localSha !== remoteSha) {
-          // Local branch exists but points to different commit than remote
-          // Reset the local branch to match the remote
           await git.branch(['-f', branchName, baseBranch]);
           return { created: false, source: 'updated-from-remote' };
         }
@@ -260,6 +285,9 @@ export async function createWorktree(name, branchName, baseBranch = null, cwd = 
   const git = await getGit(cwd);
   const repoRoot = await getRepoRoot(cwd);
   const worktreesBase = getWorktreesBase(repoRoot);
+
+  // Prune stale worktree references before creating a new one
+  await pruneWorktrees(cwd);
 
   // Ensure worktrees directory exists
   if (!existsSync(worktreesBase)) {
@@ -293,6 +321,10 @@ export async function createWorktree(name, branchName, baseBranch = null, cwd = 
 
 export async function removeWorktree(path, force = false, cwd = process.cwd()) {
   const git = await getGit(cwd);
+
+  // Prune stale worktree references before removing
+  await pruneWorktrees(cwd);
+
   const args = ['worktree', 'remove'];
   if (force) args.push('--force');
   args.push(path);

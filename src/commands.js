@@ -147,32 +147,40 @@ export async function createWorktreeFlow() {
 
   const currentBranch = await getCurrentBranch();
   const repoRoot = await getRepoRoot();
+  const isDetached = !currentBranch || currentBranch === 'HEAD';
 
   // Step 1: Choose source type
+  const sourceChoices = [];
+
+  if (!isDetached) {
+    sourceChoices.push({
+      name: `${icons.branch}  Current branch (${colors.branch(currentBranch)})`,
+      value: 'current',
+      description: 'Create from your current branch',
+    });
+  }
+
+  sourceChoices.push(
+    {
+      name: `${icons.local}  Local branch`,
+      value: 'local',
+      description: 'Choose from existing local branches',
+    },
+    {
+      name: `${icons.remote}  Remote branch`,
+      value: 'remote',
+      description: 'Choose from remote branches',
+    },
+    {
+      name: `${icons.sparkles}  New branch`,
+      value: 'new',
+      description: 'Create a fresh branch from a base',
+    },
+  );
+
   const sourceType = await select({
     message: 'What do you want to base your worktree on?',
-    choices: [
-      {
-        name: `${icons.branch}  Current branch (${colors.branch(currentBranch)})`,
-        value: 'current',
-        description: 'Create from your current branch',
-      },
-      {
-        name: `${icons.local}  Local branch`,
-        value: 'local',
-        description: 'Choose from existing local branches',
-      },
-      {
-        name: `${icons.remote}  Remote branch`,
-        value: 'remote',
-        description: 'Choose from remote branches',
-      },
-      {
-        name: `${icons.sparkles}  New branch`,
-        value: 'new',
-        description: 'Create a fresh branch from a base',
-      },
-    ],
+    choices: sourceChoices,
     theme: {
       prefix: icons.tree,
     },
@@ -428,15 +436,19 @@ export async function removeWorktreeFlow() {
     try {
       await removeWorktree(selected.path, false);
     } catch {
+      // Stop spinner before showing interactive prompt
+      spinner.stop();
+
       const forceRemove = await confirm({
         message: 'Worktree has changes. Force remove?',
         default: false,
       });
 
       if (forceRemove) {
+        spinner.start('Force removing worktree...');
         await removeWorktree(selected.path, true);
       } else {
-        spinner.fail('Aborted');
+        warning('Aborted');
         return;
       }
     }

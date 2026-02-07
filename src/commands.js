@@ -20,6 +20,7 @@ import {
   formatBranchChoice,
 } from './ui.js';
 import { showCdHint } from './setup.js';
+import { resolveConfig, loadConfig, runHooks } from './config.js';
 import {
   isGitRepo,
   getRepoRoot,
@@ -33,7 +34,6 @@ import {
   removeWorktree,
   buildBranchName,
   isValidBranchName,
-  getConfig,
   getWorktreesBase,
   mergeBranch,
   getMainBranch,
@@ -69,7 +69,8 @@ export async function mainMenu() {
 
   const repoRoot = await getRepoRoot();
   const currentBranch = await getCurrentBranch();
-  const worktrees = await getWorktreesInBase(repoRoot);
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const worktrees = await getWorktreesInBase(repoRoot, config);
 
   const branchDisplay = currentBranch && currentBranch !== 'HEAD'
     ? colors.branch(currentBranch)
@@ -309,9 +310,9 @@ export async function createWorktreeFlow() {
 
     worktreeName = worktreeName.trim().replace(/ /g, '-');
 
-    // Build branch name with optional prefix
-    const config = getConfig();
-    branchName = buildBranchName(worktreeName, config.branchPrefix);
+    // Build branch name with hierarchical config resolution
+    const config = resolveConfig(process.cwd(), repoRoot);
+    branchName = buildBranchName(worktreeName, config);
 
     // Step 3: Confirm
     spacer();
@@ -319,7 +320,7 @@ export async function createWorktreeFlow() {
     info(`Worktree: ${colors.highlight(worktreeName)}`);
     info(`Branch:   ${colors.branch(branchName)}`);
     info(`Base:     ${colors.muted(baseBranch || 'HEAD')}`);
-    info(`Path:     ${colors.path(getWorktreesBase(repoRoot) + '/' + worktreeName)}`);
+    info(`Path:     ${colors.path(getWorktreesBase(repoRoot, config) + '/' + worktreeName)}`);
     divider();
     spacer();
 
@@ -362,6 +363,32 @@ export async function createWorktreeFlow() {
         info(`Using existing branch ${colors.branch(branchName)} (${result.branchSource})`);
       }
 
+      // Run post-create hooks
+      const hookCommands = repoConfig.hooks?.['post-create'];
+      if (hookCommands && hookCommands.length > 0) {
+        spacer();
+        const hookSpinner = ora({
+          text: 'Running post-create hooks...',
+          color: 'magenta',
+        }).start();
+
+        const hookResults = runHooks('post-create', repoConfig, {
+          source: repoRoot,
+          path: result.path,
+          branch: branchName,
+        });
+
+        const failed = hookResults.filter((r) => !r.success);
+        if (failed.length === 0) {
+          hookSpinner.succeed(colors.success(`Ran ${hookResults.length} post-create hook${hookResults.length === 1 ? '' : 's'}`));
+        } else {
+          hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+          for (const f of failed) {
+            warning(`Hook failed: ${colors.muted(f.command)}`);
+          }
+        }
+      }
+
       showCdHint(result.path);
     } catch (err) {
       spinner.fail(colors.error('Failed to create worktree'));
@@ -377,7 +404,8 @@ export async function listWorktrees() {
   await ensureGitRepo();
 
   const repoRoot = await getRepoRoot();
-  const worktrees = await getWorktreesInBase(repoRoot);
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
 
   heading(`${icons.folder} Worktrees`);
@@ -415,7 +443,8 @@ export async function removeWorktreeFlow() {
   heading(`${icons.trash} Remove Worktree`);
 
   const repoRoot = await getRepoRoot();
-  const worktrees = await getWorktreesInBase(repoRoot);
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
 
   if (worktrees.length === 0) {
@@ -535,7 +564,8 @@ export async function mergeWorktreeFlow() {
 
   const repoRoot = await getRepoRoot();
   const mainPath = await getMainRepoPath();
-  const worktrees = await getWorktreesInBase(repoRoot);
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
   const isAtHome = currentPath === mainPath;
 
@@ -771,7 +801,8 @@ export async function goToWorktree(name) {
   await ensureGitRepo();
 
   const repoRoot = await getRepoRoot();
-  const worktrees = await getWorktreesInBase(repoRoot);
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const worktrees = await getWorktreesInBase(repoRoot, config);
 
   if (worktrees.length === 0) {
     heading(`${icons.rocket} Jump to Worktree`);

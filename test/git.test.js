@@ -7,15 +7,11 @@ import { simpleGit } from 'simple-git';
 
 // Resolve symlinks (macOS /tmp -> /private/tmp) so paths match git output
 const tmpBase = realpathSync(mkdtempSync(join(tmpdir(), 'wt-test-')));
-process.env.W_PROJECTS_DIR = join(tmpBase, 'projects');
-process.env.W_WORKTREES_DIR = join(tmpBase, 'projects', 'worktrees');
-process.env.W_DEFAULT_BRANCH_PREFIX = '';
 
 const {
   buildBranchName,
   isValidBranchName,
   getWorktreesBase,
-  getConfig,
   isGitRepo,
   getRepoRoot,
   getCurrentBranch,
@@ -33,6 +29,19 @@ const {
 
 // ─── Helpers ──────────────────────────────────────────────
 
+function setupTestConfig(repoRoot, overrides = {}) {
+  const config = {
+    projectsDir: join(tmpBase, 'projects'),
+    worktreesDir: join(tmpBase, 'projects', 'worktrees'),
+    branchPrefix: '',
+    ...overrides,
+  };
+  const configDir = join(repoRoot, '.wt');
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, 'config.json'), JSON.stringify(config));
+  return config;
+}
+
 async function initRepo(dir) {
   mkdirSync(dir, { recursive: true });
   const git = simpleGit(dir);
@@ -40,8 +49,12 @@ async function initRepo(dir) {
   await git.addConfig('user.email', 'test@test.com');
   await git.addConfig('user.name', 'Test');
   writeFileSync(join(dir, 'README.md'), '# test\n');
+  // Add .gitignore to exclude .wt directory
+  writeFileSync(join(dir, '.gitignore'), '.wt/\n');
   await git.add('.');
   await git.commit('initial commit');
+  // Set up default config for test repo
+  setupTestConfig(dir);
   return git;
 }
 
@@ -49,27 +62,27 @@ async function initRepo(dir) {
 
 describe('buildBranchName', () => {
   it('returns the leaf name when no prefix', () => {
-    assert.equal(buildBranchName('feature-x'), 'feature-x');
+    assert.equal(buildBranchName('feature-x', { branchPrefix: '' }), 'feature-x');
   });
 
   it('joins prefix and leaf with slash', () => {
-    assert.equal(buildBranchName('feature-x', 'user'), 'user/feature-x');
+    assert.equal(buildBranchName('feature-x', { branchPrefix: 'user' }), 'user/feature-x');
   });
 
   it('strips trailing slash from prefix', () => {
-    assert.equal(buildBranchName('feature-x', 'user/'), 'user/feature-x');
+    assert.equal(buildBranchName('feature-x', { branchPrefix: 'user/' }), 'user/feature-x');
   });
 
   it('strips leading slash from leaf', () => {
-    assert.equal(buildBranchName('/feature-x', 'user'), 'user/feature-x');
+    assert.equal(buildBranchName('/feature-x', { branchPrefix: 'user' }), 'user/feature-x');
   });
 
   it('replaces spaces with hyphens in leaf', () => {
-    assert.equal(buildBranchName('my feature', ''), 'my-feature');
+    assert.equal(buildBranchName('my feature', { branchPrefix: '' }), 'my-feature');
   });
 
   it('handles empty prefix as falsy', () => {
-    assert.equal(buildBranchName('branch', ''), 'branch');
+    assert.equal(buildBranchName('branch', { branchPrefix: '' }), 'branch');
   });
 });
 
@@ -129,46 +142,26 @@ describe('isValidBranchName', () => {
     assert.equal(isValidBranchName('a\\b'), false);
   });
 });
-
-describe('getConfig', () => {
-  it('returns a config object with expected keys', () => {
-    const cfg = getConfig();
-    assert.ok('projectsDir' in cfg);
-    assert.ok('worktreesDir' in cfg);
-    assert.ok('branchPrefix' in cfg);
-  });
-
-  it('returns env-overridden values', () => {
-    const cfg = getConfig();
-    assert.equal(cfg.projectsDir, join(tmpBase, 'projects'));
-    assert.equal(cfg.worktreesDir, join(tmpBase, 'projects', 'worktrees'));
-  });
-
-  it('returns a copy (not the original object)', () => {
-    const a = getConfig();
-    const b = getConfig();
-    assert.notEqual(a, b);
-    assert.deepEqual(a, b);
-  });
-});
-
 describe('getWorktreesBase', () => {
   it('derives worktree base from repo under projectsDir', () => {
     const projectsDir = join(tmpBase, 'projects');
     const repoRoot = join(projectsDir, 'my-repo');
-    const result = getWorktreesBase(repoRoot);
+    const config = { projectsDir, worktreesDir: join(tmpBase, 'projects', 'worktrees') };
+    const result = getWorktreesBase(repoRoot, config);
     assert.equal(result, join(tmpBase, 'projects', 'worktrees', 'my-repo'));
   });
 
   it('uses basename for repos outside projectsDir', () => {
-    const result = getWorktreesBase('/some/other/path/my-repo');
+    const config = { projectsDir: join(tmpBase, 'projects'), worktreesDir: join(tmpBase, 'projects', 'worktrees') };
+    const result = getWorktreesBase('/some/other/path/my-repo', config);
     assert.equal(result, join(tmpBase, 'projects', 'worktrees', 'my-repo'));
   });
 
   it('handles nested repos under projectsDir', () => {
     const projectsDir = join(tmpBase, 'projects');
     const repoRoot = join(projectsDir, 'org', 'my-repo');
-    const result = getWorktreesBase(repoRoot);
+    const config = { projectsDir, worktreesDir: join(tmpBase, 'projects', 'worktrees') };
+    const result = getWorktreesBase(repoRoot, config);
     assert.equal(result, join(tmpBase, 'projects', 'worktrees', 'org', 'my-repo'));
   });
 });

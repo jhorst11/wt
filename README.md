@@ -72,18 +72,64 @@ You'll be prompted to:
 
 ### Configuration
 
-You can configure wt-cli via environment variables:
+wt-cli uses hierarchical config files to support user-wide and per-directory customization.
 
-```bash
-# Directory where your projects live
-export W_PROJECTS_DIR="$HOME/projects"
+#### Config File Locations
 
-# Directory where worktrees will be created
-export W_WORKTREES_DIR="$HOME/projects/worktrees"
+Config files are loaded from (lowest to highest priority):
 
-# Optional prefix for branch names (e.g., "username")
-export W_DEFAULT_BRANCH_PREFIX=""
+1. **Global config:** `~/.wt/config.json` - applies to all repositories
+2. **Repository config:** `<repo>/.wt/config.json` - overrides global config for this repo
+3. **Directory config:** `<any-directory>/.wt/config.json` - overrides parent configs for this directory and subdirectories
+
+The nearest config file wins for each setting.
+
+#### Global Config Example
+
+Create `~/.wt/config.json`:
+
+```json
+{
+  "projectsDir": "$HOME/code",
+  "worktreesDir": "$HOME/code/worktrees",
+  "branchPrefix": "username/"
+}
 ```
+
+#### Repository Config Example
+
+Create `<repo>/.wt/config.json`:
+
+```json
+{
+  "branchPrefix": "feature/",
+  "hooks": {
+    "post-create": [
+      "npm install",
+      "cp $WT_SOURCE/.env .env"
+    ]
+  }
+}
+```
+
+#### Config Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `projectsDir` | `string` | `~/projects` | Directory where main repositories live |
+| `worktreesDir` | `string` | `~/projects/worktrees` | Directory where worktrees are created |
+| `branchPrefix` | `string` | `""` | Prefix for branch names (e.g., "username/") |
+| `hooks.post-create` | `string[]` | `[]` | Shell commands to run after creating a worktree |
+
+**Hook environment variables** (available in hook commands):
+
+| Variable | Description |
+|----------|-------------|
+| `WT_SOURCE` | Absolute path to the main repository |
+| `WT_BRANCH` | Branch name of the new worktree |
+| `WT_PATH` | Absolute path to the new worktree (also the cwd) |
+
+Hook commands run with cwd set to the new worktree path. If a hook command fails, a warning is shown but the worktree creation still succeeds.
 
 ## How It Works
 

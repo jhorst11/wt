@@ -1,18 +1,7 @@
 import { simpleGit } from 'simple-git';
-import { homedir } from 'os';
 import { join, basename, relative } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
-
-// Configuration - can be overridden via environment variables
-const config = {
-  projectsDir: process.env.W_PROJECTS_DIR || join(homedir(), 'projects'),
-  worktreesDir: process.env.W_WORKTREES_DIR || join(homedir(), 'projects', 'worktrees'),
-  branchPrefix: process.env.W_DEFAULT_BRANCH_PREFIX || '',
-};
-
-export function getConfig() {
-  return { ...config };
-}
+import { resolveConfig } from './config.js';
 
 export async function getGit(cwd = process.cwd()) {
   return simpleGit(cwd);
@@ -96,7 +85,7 @@ export async function getAllBranches(cwd = process.cwd()) {
   };
 }
 
-export function getWorktreesBase(repoRoot) {
+export function getWorktreesBase(repoRoot, config) {
   const projectsDir = config.projectsDir.replace(/\/$/, '');
   let repoRel;
 
@@ -141,8 +130,8 @@ export async function getWorktrees(cwd = process.cwd()) {
   }
 }
 
-export async function getWorktreesInBase(repoRoot) {
-  const base = getWorktreesBase(repoRoot);
+export async function getWorktreesInBase(repoRoot, config) {
+  const base = getWorktreesBase(repoRoot, config);
   if (!existsSync(base)) return [];
 
   try {
@@ -182,8 +171,9 @@ export async function getMainRepoPath(cwd = process.cwd()) {
   }
 }
 
-export function buildBranchName(leaf, prefix = config.branchPrefix) {
+export function buildBranchName(leaf, config) {
   const cleanLeaf = leaf.replace(/^\//, '').replace(/ /g, '-');
+  const prefix = config.branchPrefix || '';
   if (prefix) {
     return `${prefix.replace(/\/$/, '')}/${cleanLeaf}`;
   }
@@ -289,7 +279,8 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
 export async function createWorktree(name, branchName, baseBranch = null, cwd = process.cwd()) {
   const git = await getGit(cwd);
   const repoRoot = await getRepoRoot(cwd);
-  const worktreesBase = getWorktreesBase(repoRoot);
+  const config = resolveConfig(cwd, repoRoot);
+  const worktreesBase = getWorktreesBase(repoRoot, config);
 
   // Prune stale worktree references before creating a new one
   await pruneWorktrees(cwd);

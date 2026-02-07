@@ -35,7 +35,7 @@ The codebase is organized into four distinct modules:
    - Branch operations (getLocalBranches, getRemoteBranches, ensureBranch)
    - Worktree CRUD (createWorktree, removeWorktree, getWorktreesInBase)
    - Merge operations (mergeBranch, deleteBranch)
-   - Configuration via environment variables (W_PROJECTS_DIR, W_WORKTREES_DIR, W_DEFAULT_BRANCH_PREFIX)
+   - Uses hierarchical config files loaded via resolveConfig()
 
 3. **`src/commands.js`** - User-facing command flows. Each command is an async function that:
    - Shows appropriate UI (logo/mini-logo)
@@ -50,7 +50,13 @@ The codebase is organized into four distinct modules:
    - Display functions (success, error, warning, info, heading, divider, spacer)
    - Logo rendering (showLogo, showMiniLogo)
 
-5. **`src/setup.js`** - Shell integration setup and detection:
+5. **`src/config.js`** - Hierarchical configuration system. Contains:
+   - loadConfig() - Loads config from .wt/config.json at any directory level
+   - resolveConfig() - Resolves hierarchical configs from global to current directory
+   - runHooks() - Executes post-create hooks with environment variables
+   - Supports global ~/.wt/config.json and per-directory overrides
+
+6. **`src/setup.js`** - Shell integration setup and detection:
    - Detects user's shell (bash/zsh/fish)
    - Installs wrapper function to rc files
    - Provides showCdHint() for directory navigation hints
@@ -61,18 +67,21 @@ The codebase is organized into four distinct modules:
 The tool creates worktrees in a standardized location:
 
 ```
-~/projects/
-├── my-repo/              # Main repository (W_PROJECTS_DIR)
-└── worktrees/
-    └── my-repo/          # Worktrees for my-repo (W_WORKTREES_DIR)
+~/code/                          # projectsDir (default: ~/projects)
+├── my-repo/                     # Main repository
+│   └── .wt/config.json         # Per-repo config (optional)
+└── worktrees/                   # worktreesDir (default: ~/projects/worktrees)
+    └── my-repo/                 # Worktrees for my-repo
         ├── feature-a/
         └── feature-b/
 ```
 
-Configuration is via environment variables:
-- `W_PROJECTS_DIR` - Where main repos live (default: ~/projects)
-- `W_WORKTREES_DIR` - Where worktrees are created (default: ~/projects/worktrees)
-- `W_DEFAULT_BRANCH_PREFIX` - Optional branch prefix (e.g., "username/")
+Configuration is via hierarchical `.wt/config.json` files:
+- **Global:** `~/.wt/config.json` - applies to all repos (base config)
+- **Per-repo:** `<repo>/.wt/config.json` - overrides global for this repo
+- **Per-directory:** `<any-directory>/.wt/config.json` - overrides parent configs for subdirectories
+
+Nearest config wins. Fields: `projectsDir`, `worktreesDir`, `branchPrefix`, `hooks`
 
 ### Shell Integration Mechanism
 

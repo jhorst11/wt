@@ -1,4 +1,5 @@
 import { select, confirm } from '@inquirer/prompts';
+import { ExitPromptError } from '@inquirer/core';
 import { homedir } from 'os';
 import { existsSync, readFileSync, appendFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -130,7 +131,7 @@ export async function setupCommand() {
     info(`SHELL environment variable: ${process.env.SHELL || 'not set'}`);
     spacer();
     console.log(`  ${colors.muted('Please manually add the shell wrapper to your shell config.')}`);
-    console.log(`  ${colors.muted('See:')} ${colors.path('https://github.com/your-repo/wt#shell-integration')}`);
+    console.log(`  ${colors.muted('See:')} ${colors.path('https://github.com/jhorst11/wt#shell-integration')}`);
     spacer();
     return;
   }
@@ -158,34 +159,44 @@ export async function setupCommand() {
   console.log(`  ${colors.muted('add a small shell function to your')} ${colors.path(config.rcFile)}`);
   spacer();
 
-  const action = await select({
-    message: 'How would you like to proceed?',
-    choices: [
-      {
-        name: `${icons.sparkles}  Auto-install (append to ${config.rcFile})`,
-        value: 'auto',
-        description: 'Recommended - automatically adds the integration',
-      },
-      {
-        name: `${icons.info}  Show me the code to copy`,
-        value: 'show',
-        description: 'Display the code so you can add it manually',
-      },
-      {
-        name: `${colors.muted(icons.cross + '  Skip for now')}`,
-        value: 'skip',
-      },
-    ],
-    theme: { prefix: icons.tree },
-  });
+  try {
+    const action = await select({
+      message: 'How would you like to proceed?',
+      choices: [
+        {
+          name: `${icons.sparkles}  Auto-install (append to ${config.rcFile})`,
+          value: 'auto',
+          description: 'Recommended - automatically adds the integration',
+        },
+        {
+          name: `${icons.info}  Show me the code to copy`,
+          value: 'show',
+          description: 'Display the code so you can add it manually',
+        },
+        {
+          name: `${colors.muted(icons.cross + '  Skip for now')}`,
+          value: 'skip',
+        },
+      ],
+      theme: { prefix: icons.tree },
+    });
 
-  if (action === 'auto') {
-    await autoInstall(config);
-  } else if (action === 'show') {
-    showManualInstructions(config);
-  } else {
-    info('Skipped. You can run `wt setup` anytime to configure shell integration.');
-    spacer();
+    if (action === 'auto') {
+      await autoInstall(config);
+    } else if (action === 'show') {
+      showManualInstructions(config);
+    } else {
+      info('Skipped. You can run `wt setup` anytime to configure shell integration.');
+      spacer();
+    }
+  } catch (err) {
+    if (err instanceof ExitPromptError) {
+      spacer();
+      info('Cancelled');
+      spacer();
+      return;
+    }
+    throw err;
   }
 }
 

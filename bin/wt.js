@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'module';
 import { program } from 'commander';
 import {
   mainMenu,
@@ -13,10 +14,13 @@ import {
 import { showHelp, showLogo, spacer, colors } from '../src/ui.js';
 import { setupCommand } from '../src/setup.js';
 
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
+
 program
   .name('wt')
   .description('🌳 Beautiful interactive git worktree manager')
-  .version('1.0.0');
+  .version(version);
 
 program
   .command('new', { isDefault: false })
@@ -57,10 +61,7 @@ program
 
 // Default action (no command = interactive menu)
 program.action(async () => {
-  const args = process.argv.slice(2);
-  if (args.length === 0) {
-    await mainMenu();
-  }
+  await mainMenu();
 });
 
 // Custom help

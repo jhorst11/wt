@@ -12,7 +12,8 @@
     "shell"
   ],
   "scripts": {
-    "start": "node bin/wt.js"
+    "start": "node bin/wt.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [
     "git",

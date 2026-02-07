@@ -1,6 +1,10 @@
 import chalk from 'chalk';
 import gradient from 'gradient-string';
 import figures from 'figures';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
 
 // Custom gradient for the logo
 const wtGradient = gradient(['#00d4ff', '#7c3aed', '#f472b6']);
@@ -52,7 +56,7 @@ export function showLogo() {
 }
 
 export function showMiniLogo() {
-  console.log(`\n  ${icons.tree} ${wtGradient('worktree')} ${colors.muted('v1.0.0')}\n`);
+  console.log(`\n  ${icons.tree} ${wtGradient('worktree')} ${colors.muted(`v${version}`)}\n`);
 }
 
 export function success(message) {
@@ -125,10 +129,12 @@ export function showHelp() {
   const commands = [
     ['wt', 'Interactive menu to manage worktrees'],
     ['wt new', 'Create a new worktree interactively'],
-    ['wt list', 'List all worktrees for current repo'],
-    ['wt remove', 'Remove a worktree interactively'],
+    ['wt list|ls', 'List all worktrees for current repo'],
+    ['wt go [name]', 'Jump to a worktree (interactive if no name)'],
+    ['wt merge', 'Merge a worktree branch into another branch'],
+    ['wt remove|rm', 'Remove a worktree interactively'],
     ['wt home', 'Jump back to the main repository'],
-    ['wt go <name>', 'Jump to a specific worktree'],
+    ['wt setup', 'Configure shell integration for auto-navigation'],
   ];
 
   commands.forEach(([cmd, desc]) => {

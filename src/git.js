@@ -193,8 +193,13 @@ export function buildBranchName(leaf, prefix = config.branchPrefix) {
 export async function branchExistsLocal(branchName, cwd = process.cwd()) {
   try {
     const git = await getGit(cwd);
-    await git.raw(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]);
-    return true;
+    // Do not use --quiet: simple-git swallows non-zero exit codes when output is
+    // empty, so `--quiet` (which suppresses output) causes the try-block to
+    // succeed even when the ref does not exist.  Without --quiet the command
+    // prints the SHA on success (keeping the try path) and writes to stderr on
+    // failure (causing simple-git to throw into the catch path).
+    const result = await git.raw(['show-ref', '--verify', `refs/heads/${branchName}`]);
+    return result.trim().length > 0;
   } catch {
     return false;
   }
@@ -255,7 +260,7 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
         const remoteSha = (await git.revparse([baseBranch])).trim();
 
         if (localSha !== remoteSha) {
-          await git.branch(['-f', branchName, baseBranch]);
+          await git.raw(['branch', '-f', branchName, baseBranch]);
           return { created: false, source: 'updated-from-remote' };
         }
       } catch {
@@ -273,9 +278,9 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
 
   // Create new branch from base
   if (baseBranch) {
-    await git.branch([branchName, baseBranch]);
+    await git.raw(['branch', branchName, baseBranch]);
   } else {
-    await git.branch([branchName]);
+    await git.raw(['branch', branchName]);
   }
 
   return { created: true, source: 'new' };
@@ -304,10 +309,11 @@ export async function createWorktree(name, branchName, baseBranch = null, cwd = 
   // Fetch all remotes
   await git.fetch(['--all', '--prune']).catch(() => {});
 
-  // Ensure branch exists
+  // Ensure branch exists (or determine if we need to create it)
   const branchResult = await ensureBranch(branchName, baseBranch, cwd);
 
-  // Create worktree
+  // Create worktree — ensureBranch guarantees the branch already exists, so we
+  // just attach the worktree to it.
   await git.raw(['worktree', 'add', worktreePath, branchName]);
 
   return {

@@ -52,6 +52,7 @@ program
 
 program
   .command('go [name]')
+  .alias('jump')
   .description('Jump to a worktree (interactive if no name)')
   .action(goToWorktree);
 

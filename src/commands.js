@@ -23,7 +23,7 @@ import {
   resetTabColor,
   colorIndicator,
 } from './ui.js';
-import { showCdHint } from './setup.js';
+import { showCdHint, checkWrapperInRcFile, setupCommand } from './setup.js';
 import { resolveConfig, loadConfig, runHooks, assignWorktreeColor, getWorktreeColor, removeWorktreeColor } from './config.js';
 import {
   isGitRepo,
@@ -90,6 +90,14 @@ export async function mainMenu() {
   }
   spacer();
 
+  const wrapperStatus = checkWrapperInRcFile();
+
+  if (!wrapperStatus.installed) {
+    console.log(`  ${icons.warning}  ${colors.warning('Shell integration not configured')} ${colors.muted('— directory jumping is disabled')}`);
+    console.log(`  ${colors.muted('   Run')} ${colors.secondary('wt setup')} ${colors.muted('or select Setup below to enable auto-navigation')}`);
+    spacer();
+  }
+
   const choices = [
     {
       name: `${icons.plus}  Create new worktree`,
@@ -123,6 +131,14 @@ export async function mainMenu() {
       name: `🔀  Merge worktree`,
       value: 'merge',
       description: 'Merge a worktree branch back to main',
+    });
+  }
+
+  if (!wrapperStatus.installed) {
+    choices.push({
+      name: `${icons.sparkles}  Setup shell integration`,
+      value: 'setup',
+      description: 'Enable auto-navigation for wt go, wt home, and wt new',
     });
   }
 
@@ -161,6 +177,9 @@ export async function mainMenu() {
         break;
       case 'go':
         await goToWorktree();
+        break;
+      case 'setup':
+        await setupCommand();
         break;
       case 'exit':
         spacer();

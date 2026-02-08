@@ -259,7 +259,7 @@ export function showCdHint(path) {
   } else {
     // No wrapper - show a friendly message instead
     spacer();
-    console.log(`  ${icons.rocket} ${colors.muted('Run:')} ${colors.primary(`cd "${path}"`)}`);
+    console.log(`  ${icons.rocket} ${colors.muted('Run:')} ${colors.primary(`wt go`)} ${colors.muted('or')} ${colors.primary(`cd "${path}"`)}`);
     spacer();
     console.log(`  ${colors.muted(`Tip: Run`)} ${colors.secondary('wt setup')} ${colors.muted('to enable auto-navigation')}`);
     spacer();

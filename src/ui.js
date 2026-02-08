@@ -195,7 +195,7 @@ export function detectTerminal() {
 
 /**
  * Set terminal tab color (supports multiple terminal types).
- * Works with iTerm2, WezTerm, Ghostty, Kitty, Alacritty, Windows Terminal.
+ * Works with iTerm2, WezTerm, Kitty, Alacritty, Windows Terminal.
  * No-op if stdout is not a TTY or terminal is unsupported.
  * @param {string} hex - Hex color like "#E53935" or "E53935"
  */
@@ -209,7 +209,6 @@ export function setTabColor(hex) {
 
   switch (terminal) {
     case 'iterm2':
-    case 'ghostty':
     case 'osc-generic':
       process.stdout.write(`\x1b]1337;SetColors=tab=${rgb}\x07`);
       break;
@@ -231,7 +230,7 @@ export function setTabColor(hex) {
     case 'windows-terminal':
       process.stdout.write(`\x1b]9;4;1;${rgb}\x07`);
       break;
-    // 'vscode' and 'unsupported' - no-op
+    // 'ghostty', 'vscode' and 'unsupported' - no-op
   }
 }
 
@@ -246,7 +245,6 @@ export function resetTabColor() {
 
   switch (terminal) {
     case 'iterm2':
-    case 'ghostty':
     case 'osc-generic':
       process.stdout.write('\x1b]1337;SetColors=tab=default\x07');
       break;

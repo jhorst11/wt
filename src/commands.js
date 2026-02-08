@@ -18,6 +18,7 @@ import {
   colors,
   icons,
   formatBranchChoice,
+  formatWorktreeChoice,
   setTabColor,
   resetTabColor,
   colorIndicator,

@@ -364,7 +364,7 @@ export async function createWorktreeFlow() {
       }
 
       // Run post-create hooks
-      const hookCommands = repoConfig.hooks?.['post-create'];
+      const hookCommands = config.hooks?.['post-create'];
       if (hookCommands && hookCommands.length > 0) {
         spacer();
         const hookSpinner = ora({
@@ -372,7 +372,7 @@ export async function createWorktreeFlow() {
           color: 'magenta',
         }).start();
 
-        const hookResults = runHooks('post-create', repoConfig, {
+        const hookResults = runHooks('post-create', config, {
           source: repoRoot,
           path: result.path,
           branch: branchName,

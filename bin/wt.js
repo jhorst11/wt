@@ -20,12 +20,13 @@ const { version } = require('../package.json');
 program
   .name('wt')
   .description('🌳 Beautiful interactive git worktree manager')
-  .version(version);
+  .version(version)
+  .option('--verbose', 'Show full hook command output (default: show command name with spinner only)');
 
 program
   .command('new', { isDefault: false })
   .description('Create a new worktree interactively')
-  .action(createWorktreeFlow);
+  .action((_args, cmd) => createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
 
 program
   .command('list')
@@ -37,12 +38,12 @@ program
   .command('remove')
   .alias('rm')
   .description('Remove a worktree interactively')
-  .action(removeWorktreeFlow);
+  .action((_args, cmd) => removeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
 
 program
   .command('merge')
   .description('Merge a worktree branch back to main')
-  .action(mergeWorktreeFlow);
+  .action((_args, cmd) => mergeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
 
 program
   .command('home')

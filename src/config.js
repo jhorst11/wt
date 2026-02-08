@@ -1,10 +1,117 @@
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { spawn } from 'child_process';
 import { homedir } from 'os';
+import { once } from 'events';
 
 const CONFIG_DIR = '.wt';
 const CONFIG_FILE = 'config.json';
+const WORKTREE_COLORS_FILE = 'worktree-colors.json';
+
+/** Distinct hex colors (with #) for worktree tab/UI; cycle through for unique assignment. */
+export const WORKTREE_COLORS_PALETTE = [
+  '#E53935', '#D81B60', '#8E24AA', '#5E35B1', '#3949AB', '#1E88E5', '#039BE5', '#00ACC1',
+  '#00897B', '#43A047', '#7CB342', '#C0CA33', '#FDD835', '#FFB300', '#FB8C00', '#F4511E',
+];
+
+function getWorktreeColorsPath(repoRoot) {
+  return join(repoRoot, CONFIG_DIR, WORKTREE_COLORS_FILE);
+}
+
+/**
+ * Load worktree name → hex color map from repo's .wt/worktree-colors.json.
+ * @returns {Record<string, string>}
+ */
+export function loadWorktreeColors(repoRoot) {
+  const path = getWorktreeColorsPath(repoRoot);
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const data = JSON.parse(raw);
+    if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+      const out = {};
+      for (const [name, hex] of Object.entries(data)) {
+        if (typeof name === 'string' && typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+          out[name] = hex;
+        }
+      }
+      return out;
+    }
+  } catch {
+    // file missing or invalid
+  }
+  return {};
+}
+
+/**
+ * Save worktree name → hex color map to repo's .wt/worktree-colors.json.
+ */
+export function saveWorktreeColors(repoRoot, mapping) {
+  const dir = join(repoRoot, CONFIG_DIR);
+  const path = getWorktreeColorsPath(repoRoot);
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, JSON.stringify(mapping, null, 2) + '\n', 'utf8');
+  } catch {
+    // ignore write errors (e.g. read-only repo)
+  }
+}
+
+/**
+ * Assign a unique color to a new worktree. Checks config overrides first, then
+ * uses first palette color not used by existing worktrees.
+ * Persists and returns the hex color (e.g. "#E53935").
+ */
+export function assignWorktreeColor(repoRoot, worktreeName) {
+  const current = loadWorktreeColors(repoRoot);
+
+  // Check if already assigned
+  let hex = current[worktreeName];
+  if (hex) return hex;
+
+  // Check config override
+  const config = resolveConfig(process.cwd(), repoRoot);
+  if (config.worktreeColors?.[worktreeName]) {
+    hex = config.worktreeColors[worktreeName];
+    current[worktreeName] = hex;
+    saveWorktreeColors(repoRoot, current);
+    return hex;
+  }
+
+  // Auto-assign from palette (prefer custom palette if configured)
+  const palette = config.colorPalette || WORKTREE_COLORS_PALETTE;
+  const usedColors = new Set(Object.values(current));
+
+  for (const c of palette) {
+    if (!usedColors.has(c)) {
+      hex = c;
+      break;
+    }
+  }
+
+  hex = hex || palette[usedColors.size % palette.length];
+  current[worktreeName] = hex;
+  saveWorktreeColors(repoRoot, current);
+  return hex;
+}
+
+/**
+ * Get the assigned hex color for a worktree, or null if none.
+ */
+export function getWorktreeColor(repoRoot, worktreeName) {
+  const current = loadWorktreeColors(repoRoot);
+  return current[worktreeName] ?? null;
+}
+
+/**
+ * Remove a worktree's color assignment so the color can be reused.
+ */
+export function removeWorktreeColor(repoRoot, worktreeName) {
+  const current = loadWorktreeColors(repoRoot);
+  if (worktreeName in current) {
+    delete current[worktreeName];
+    saveWorktreeColors(repoRoot, current);
+  }
+}
 
 /**
  * Load configuration from .wt/config.json or config.json at the given directory.
@@ -21,6 +128,8 @@ export function loadConfig(dirPath) {
     worktreesDir: undefined,
     branchPrefix: undefined,
     hooks: {},
+    worktreeColors: {},
+    colorPalette: undefined,
   };
 
   let raw;
@@ -67,6 +176,23 @@ export function loadConfig(dirPath) {
       if (Array.isArray(commands) && commands.every((c) => typeof c === 'string')) {
         result.hooks[hookName] = commands;
       }
+    }
+  }
+
+  if (typeof parsed.worktreeColors === 'object' && parsed.worktreeColors !== null && !Array.isArray(parsed.worktreeColors)) {
+    for (const [name, hex] of Object.entries(parsed.worktreeColors)) {
+      if (typeof name === 'string' && typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+        result.worktreeColors[name] = hex;
+      }
+    }
+  }
+
+  if (Array.isArray(parsed.colorPalette)) {
+    const validColors = parsed.colorPalette.filter(hex =>
+      typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)
+    );
+    if (validColors.length > 0) {
+      result.colorPalette = validColors;
     }
   }
 
@@ -219,37 +345,80 @@ export function resolveConfig(cwd = process.cwd(), repoRoot, globalConfigPath) {
   };
 }
 
+const HOOK_TIMEOUT_MS = 300_000; // 5 minutes per command
+
 /**
  * Run hook commands sequentially. Each command runs with cwd set to `wtPath`
  * and receives WT_SOURCE, WT_BRANCH, and WT_PATH as environment variables.
  *
+ * Options:
+ * - verbose: if true, stream stdout/stderr to the terminal; if false, suppress output and only report results.
+ * - onCommandStart(cmd, index, total): called before each command (e.g. to update a spinner).
+ *
  * Returns an array of { command, success, error? } results.
  * Hook failures are non-fatal — they produce warnings but don't throw.
  */
-export function runHooks(hookName, config, { source, path: wtPath, branch }) {
+export async function runHooks(hookName, config, { source, path: wtPath, branch, name: wtName, color: wtColor }, options = {}) {
   const commands = config.hooks?.[hookName];
   if (!commands || commands.length === 0) return [];
+
+  const { verbose = false, onCommandStart } = options;
+  const total = commands.length;
 
   const env = {
     ...process.env,
     WT_SOURCE: source,
     WT_BRANCH: branch,
     WT_PATH: wtPath,
+    ...(wtName !== undefined && { WT_NAME: wtName }),
+    ...(wtColor !== undefined && wtColor !== null && { WT_COLOR: wtColor }),
   };
 
   const results = [];
 
-  for (const cmd of commands) {
-    try {
-      execSync(cmd, {
-        cwd: wtPath,
-        env,
-        stdio: 'pipe',
-        timeout: 300_000, // 5 minute timeout per command
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i];
+    if (typeof onCommandStart === 'function') {
+      onCommandStart(cmd, i + 1, total);
+    }
+
+    const child = spawn(cmd, [], {
+      shell: true,
+      cwd: wtPath,
+      env,
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    const stderrChunks = [];
+    if (verbose) {
+      child.stdout.pipe(process.stdout);
+      child.stderr.on('data', (chunk) => {
+        process.stderr.write(chunk);
+        stderrChunks.push(chunk);
       });
-      results.push({ command: cmd, success: true });
+    } else {
+      child.stdout.on('data', () => {}); // consume to avoid blocking the child
+      child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+    }
+
+    const timeoutId = setTimeout(() => {
+      child.kill('SIGTERM');
+    }, HOOK_TIMEOUT_MS);
+
+    try {
+      const [code, signal] = await once(child, 'exit');
+      clearTimeout(timeoutId);
+      if (code === 0 && !signal) {
+        results.push({ command: cmd, success: true });
+      } else {
+        const stderr = Buffer.concat(stderrChunks).toString().trim();
+        const detail = stderr || (signal ? `Killed by ${signal}` : `Exited with code ${code}`);
+        results.push({ command: cmd, success: false, error: detail });
+      }
     } catch (err) {
-      results.push({ command: cmd, success: false, error: err.message });
+      clearTimeout(timeoutId);
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      results.push({ command: cmd, success: false, error: stderr || err.message });
     }
   }
 

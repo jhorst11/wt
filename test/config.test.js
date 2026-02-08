@@ -276,9 +276,9 @@ describe('runHooks', () => {
     hookDir = makeRepo('hook-runner');
   });
 
-  it('returns empty array when no hooks are defined', () => {
+  it('returns empty array when no hooks are defined', async () => {
     const config = { hooks: {} };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'test',
@@ -286,9 +286,9 @@ describe('runHooks', () => {
     assert.deepEqual(results, []);
   });
 
-  it('returns empty array when hook name does not exist', () => {
+  it('returns empty array when hook name does not exist', async () => {
     const config = { hooks: { 'post-create': ['echo hi'] } };
-    const results = runHooks('pre-create', config, {
+    const results = await runHooks('pre-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'test',
@@ -296,9 +296,9 @@ describe('runHooks', () => {
     assert.deepEqual(results, []);
   });
 
-  it('runs commands successfully', () => {
+  it('runs commands successfully', async () => {
     const config = { hooks: { 'post-create': ['echo hello'] } };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'feat',
@@ -308,7 +308,7 @@ describe('runHooks', () => {
     assert.equal(results[0].command, 'echo hello');
   });
 
-  it('runs multiple commands sequentially', () => {
+  it('runs multiple commands sequentially', async () => {
     const markerFile = join(hookDir, 'hook-test-marker');
     const config = {
       hooks: {
@@ -318,7 +318,7 @@ describe('runHooks', () => {
         ],
       },
     };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'feat',
@@ -327,7 +327,7 @@ describe('runHooks', () => {
     assert.ok(results.every((r) => r.success));
   });
 
-  it('provides WT_SOURCE, WT_BRANCH, WT_PATH env vars', () => {
+  it('provides WT_SOURCE, WT_BRANCH, WT_PATH env vars', async () => {
     const config = {
       hooks: {
         'post-create': [
@@ -337,7 +337,7 @@ describe('runHooks', () => {
         ],
       },
     };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/my/source',
       path: hookDir,
       branch: 'my-branch',
@@ -348,7 +348,7 @@ describe('runHooks', () => {
     }
   });
 
-  it('continues after a failing command', () => {
+  it('continues after a failing command', async () => {
     const config = {
       hooks: {
         'post-create': [
@@ -357,7 +357,7 @@ describe('runHooks', () => {
         ],
       },
     };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'feat',
@@ -367,13 +367,13 @@ describe('runHooks', () => {
     assert.equal(results[1].success, true);
   });
 
-  it('reports error message on failure', () => {
+  it('reports error message on failure', async () => {
     const config = {
       hooks: {
         'post-create': ['exit 1'],
       },
     };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'feat',
@@ -382,13 +382,13 @@ describe('runHooks', () => {
     assert.ok(results[0].error.length > 0);
   });
 
-  it('runs commands with cwd set to worktree path', () => {
+  it('runs commands with cwd set to worktree path', async () => {
     const config = {
       hooks: {
         'post-create': [`test "$(pwd)" = "${hookDir}"`],
       },
     };
-    const results = runHooks('post-create', config, {
+    const results = await runHooks('post-create', config, {
       source: '/src',
       path: hookDir,
       branch: 'feat',

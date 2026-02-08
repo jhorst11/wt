@@ -53,7 +53,7 @@ The codebase is organized into four distinct modules:
 5. **`src/config.js`** - Hierarchical configuration system. Contains:
    - loadConfig() - Loads config from .wt/config.json at any directory level
    - resolveConfig() - Resolves hierarchical configs from global to current directory
-   - runHooks() - Executes post-create hooks with environment variables
+   - runHooks() - Executes hooks (post-create, pre-destroy) with environment variables
    - Supports global ~/.wt/config.json and per-directory overrides
 
 6. **`src/setup.js`** - Shell integration setup and detection:

@@ -55,8 +55,13 @@ export function showLogo() {
   console.log(logo);
 }
 
-export function showMiniLogo() {
-  console.log(`\n  ${icons.tree} ${wtGradient('worktree')} ${colors.muted(`v${version}`)}\n`);
+export function showMiniLogo(worktreeInfo = null) {
+  console.log(`\n  ${icons.tree} ${wtGradient('worktree')} ${colors.muted(`v${version}`)}`);
+  if (worktreeInfo) {
+    const colorDot = colorIndicator(worktreeInfo.color);
+    console.log(`  ${colorDot} ${colors.highlight(worktreeInfo.name)} ${colors.muted(`→ ${worktreeInfo.branch}`)}`);
+  }
+  console.log('');
 }
 
 export function success(message) {
@@ -96,10 +101,12 @@ export function branchItem(name, isCurrent = false, isRemote = false) {
   console.log(`  ${prefix} ${icon} ${branchName}${typeLabel}`);
 }
 
-export function worktreeItem(name, path, isCurrent = false) {
+export function worktreeItem(name, path, isCurrent = false, color = null) {
   const prefix = isCurrent ? colors.success(icons.pointer) : ' ';
   const nameDisplay = isCurrent ? colors.success.bold(name) : colors.highlight(name);
-  console.log(`  ${prefix} ${icons.folder} ${nameDisplay}`);
+  const colorDot = colorIndicator(color);
+  const displayName = colorDot ? `${colorDot} ${nameDisplay}` : nameDisplay;
+  console.log(`  ${prefix} ${icons.folder} ${displayName}`);
   console.log(`      ${colors.muted(path)}`);
 }
 
@@ -111,14 +118,164 @@ export function spacer() {
   console.log('');
 }
 
+/**
+ * Convert hex color to chalk color function.
+ * Falls back to gray for invalid hex.
+ * @param {string} hex - Hex color like "#E53935" or "E53935"
+ * @returns {Function} Chalk color function
+ */
+export function hexToChalk(hex) {
+  if (!hex) return chalk.gray;
+  const clean = hex.replace(/^#/, '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return chalk.gray;
+  return chalk.hex(clean);
+}
+
+/**
+ * Create a colored circle indicator (●) for visual color display.
+ * Returns empty string if hex is null/invalid.
+ * @param {string} hex - Hex color like "#E53935"
+ * @returns {string} Colored circle character or empty string
+ */
+export function colorIndicator(hex) {
+  if (!hex) return '';
+  const color = hexToChalk(hex);
+  return color('●'); // U+25CF filled circle
+}
+
+/**
+ * Convert hex to RGB components for terminal sequences.
+ * @param {string} hex - Hex color like "#E53935"
+ * @returns {{r: number, g: number, b: number}} RGB components 0-255
+ */
+export function hexToRgb(hex) {
+  const clean = hex.replace(/^#/, '');
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16),
+  };
+}
+
+/**
+ * Create a colored divider using the specified hex color.
+ * Falls back to muted color if hex is invalid.
+ * @param {string} hex - Hex color like "#E53935"
+ */
+export function coloredDivider(hex) {
+  const color = hex ? hexToChalk(hex) : colors.muted;
+  console.log(color('  ─'.repeat(20)));
+}
+
+/**
+ * Detect terminal type for appropriate color sequences.
+ * Checks TERM_PROGRAM, TERM, WT_SESSION, and COLORTERM env vars.
+ * @returns {string} Terminal type: 'iterm2' | 'wezterm' | 'alacritty' |
+ *                   'kitty' | 'ghostty' | 'windows-terminal' | 'vscode' |
+ *                   'osc-generic' | 'unsupported'
+ */
+export function detectTerminal() {
+  const termProgram = process.env.TERM_PROGRAM || '';
+  const term = process.env.TERM || '';
+  const colorTerm = process.env.COLORTERM || '';
+
+  if (termProgram === 'iTerm.app') return 'iterm2';
+  if (termProgram === 'WezTerm') return 'wezterm';
+  if (termProgram === 'ghostty') return 'ghostty';
+  if (termProgram === 'vscode') return 'vscode';
+  if (process.env.WT_SESSION) return 'windows-terminal';
+  if (term.includes('kitty')) return 'kitty';
+  if (termProgram.includes('Alacritty') || term.includes('alacritty')) return 'alacritty';
+
+  // Generic OSC support for truecolor terminals
+  if (colorTerm === 'truecolor' || colorTerm === '24bit') return 'osc-generic';
+
+  return 'unsupported';
+}
+
+/**
+ * Set terminal tab color (supports multiple terminal types).
+ * Works with iTerm2, WezTerm, Ghostty, Kitty, Alacritty, Windows Terminal.
+ * No-op if stdout is not a TTY or terminal is unsupported.
+ * @param {string} hex - Hex color like "#E53935" or "E53935"
+ */
+export function setTabColor(hex) {
+  if (!process.stdout.isTTY || !hex) return;
+
+  const terminal = detectTerminal();
+  const rgb = hex.replace(/^#/, '');
+
+  if (!/^[0-9A-Fa-f]{6}$/.test(rgb)) return;
+
+  switch (terminal) {
+    case 'iterm2':
+    case 'ghostty':
+    case 'osc-generic':
+      process.stdout.write(`\x1b]1337;SetColors=tab=${rgb}\x07`);
+      break;
+    case 'wezterm':
+      // WezTerm uses base64-encoded user vars
+      const b64 = Buffer.from(rgb).toString('base64');
+      process.stdout.write(`\x1b]1337;SetUserVar=tab_color=${b64}\x07`);
+      break;
+    case 'kitty':
+      process.stdout.write(`\x1b]30001;rgb:${rgb}\x07`);
+      break;
+    case 'alacritty':
+      // Background color as fallback
+      const r = rgb.slice(0, 2);
+      const g = rgb.slice(2, 4);
+      const b = rgb.slice(4, 6);
+      process.stdout.write(`\x1b]10;rgb:${r}/${g}/${b}\x07`);
+      break;
+    case 'windows-terminal':
+      process.stdout.write(`\x1b]9;4;1;${rgb}\x07`);
+      break;
+    // 'vscode' and 'unsupported' - no-op
+  }
+}
+
+/**
+ * Reset terminal tab color to default.
+ * Gracefully handles multiple terminal types.
+ */
+export function resetTabColor() {
+  if (!process.stdout.isTTY) return;
+
+  const terminal = detectTerminal();
+
+  switch (terminal) {
+    case 'iterm2':
+    case 'ghostty':
+    case 'osc-generic':
+      process.stdout.write('\x1b]1337;SetColors=tab=default\x07');
+      break;
+    case 'wezterm':
+      const b64 = Buffer.from('').toString('base64');
+      process.stdout.write(`\x1b]1337;SetUserVar=tab_color=${b64}\x07`);
+      break;
+    case 'kitty':
+      process.stdout.write('\x1b]30001;rgb:000000\x07');
+      break;
+    case 'alacritty':
+      process.stdout.write('\x1b]10;rgb:00/00/00\x07');
+      break;
+    case 'windows-terminal':
+      process.stdout.write('\x1b]9;4;0\x07');
+      break;
+  }
+}
+
 export function formatBranchChoice(branch, type = 'local') {
   const icon = type === 'remote' ? icons.remote : icons.local;
   const typeLabel = type === 'remote' ? chalk.dim(' (remote)') : '';
   return `${icon}  ${branch}${typeLabel}`;
 }
 
-export function formatWorktreeChoice(wt) {
-  return `${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}`;
+export function formatWorktreeChoice(wt, color = null) {
+  const colorDot = colorIndicator(color);
+  const prefix = colorDot ? `${colorDot} ` : '';
+  return `${prefix}${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}`;
 }
 
 export function showHelp() {

@@ -18,9 +18,12 @@ import {
   colors,
   icons,
   formatBranchChoice,
+  setTabColor,
+  resetTabColor,
+  colorIndicator,
 } from './ui.js';
 import { showCdHint } from './setup.js';
-import { resolveConfig, loadConfig, runHooks } from './config.js';
+import { resolveConfig, loadConfig, runHooks, assignWorktreeColor, getWorktreeColor, removeWorktreeColor } from './config.js';
 import {
   isGitRepo,
   getRepoRoot,
@@ -39,6 +42,7 @@ import {
   getMainBranch,
   hasUncommittedChanges,
   deleteBranch,
+  getCurrentWorktreeInfo,
 } from './git.js';
 
 function isUserCancellation(err) {
@@ -71,12 +75,18 @@ export async function mainMenu() {
   const currentBranch = await getCurrentBranch();
   const config = resolveConfig(process.cwd(), repoRoot);
   const worktrees = await getWorktreesInBase(repoRoot, config);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
 
   const branchDisplay = currentBranch && currentBranch !== 'HEAD'
     ? colors.branch(currentBranch)
     : colors.warning('detached HEAD');
   subheading(`  📍 ${colors.path(repoRoot)}`);
   subheading(`  🌿 ${branchDisplay}`);
+  if (currentWt) {
+    const wtColor = getWorktreeColor(repoRoot, currentWt.name);
+    const colorDot = colorIndicator(wtColor);
+    subheading(`  ${colorDot} ${colors.highlight(currentWt.name)}`);
+  }
   spacer();
 
   const choices = [
@@ -162,14 +172,17 @@ export async function mainMenu() {
   }
 }
 
-export async function createWorktreeFlow() {
-  showMiniLogo();
+export async function createWorktreeFlow(options = {}) {
   await ensureGitRepo();
+  const repoRoot = await getRepoRoot();
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
 
   heading(`${icons.plus} Create New Worktree`);
 
   const currentBranch = await getCurrentBranch();
-  const repoRoot = await getRepoRoot();
   const isDetached = !currentBranch || currentBranch === 'HEAD';
 
   try {
@@ -321,6 +334,10 @@ export async function createWorktreeFlow() {
     info(`Branch:   ${colors.branch(branchName)}`);
     info(`Base:     ${colors.muted(baseBranch || 'HEAD')}`);
     info(`Path:     ${colors.path(getWorktreesBase(repoRoot, config) + '/' + worktreeName)}`);
+    const postCreateHooks = config.hooks?.['post-create'];
+    if (postCreateHooks?.length) {
+      info(`Hooks:    ${colors.muted(`post-create (${postCreateHooks.length} command${postCreateHooks.length === 1 ? '' : 's'})`)}`);
+    }
     divider();
     spacer();
 
@@ -354,7 +371,11 @@ export async function createWorktreeFlow() {
       spinner.succeed(colors.success('Worktree created!'));
       spacer();
 
-      success(`Created worktree at ${colors.path(result.path)}`);
+      const worktreeColor = assignWorktreeColor(repoRoot, worktreeName);
+      setTabColor(worktreeColor);
+
+      const colorDot = colorIndicator(worktreeColor);
+      success(`${colorDot} Created worktree at ${colors.path(result.path)}`);
       if (result.branchCreated) {
         success(`Created new branch ${colors.branch(branchName)}`);
       } else if (result.branchSource === 'updated-from-remote') {
@@ -372,11 +393,19 @@ export async function createWorktreeFlow() {
           color: 'magenta',
         }).start();
 
-        const hookResults = runHooks('post-create', config, {
-          source: repoRoot,
-          path: result.path,
-          branch: branchName,
-        });
+        const hookResults = await runHooks(
+          'post-create',
+          config,
+          { source: repoRoot, path: result.path, branch: branchName, name: worktreeName, color: worktreeColor },
+          {
+            verbose: options.verbose,
+            onCommandStart: (cmd, i, total) => {
+              hookSpinner.text = total > 1
+                ? `Running post-create hooks... (${i}/${total}: ${cmd})`
+                : `Running post-create hooks... (${cmd})`;
+            },
+          }
+        );
 
         const failed = hookResults.filter((r) => !r.success);
         if (failed.length === 0) {
@@ -385,6 +414,7 @@ export async function createWorktreeFlow() {
           hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
           for (const f of failed) {
             warning(`Hook failed: ${colors.muted(f.command)}`);
+            if (f.error) info(colors.muted(f.error));
           }
         }
       }
@@ -400,13 +430,14 @@ export async function createWorktreeFlow() {
 }
 
 export async function listWorktrees() {
-  showMiniLogo();
   await ensureGitRepo();
-
   const repoRoot = await getRepoRoot();
   const config = resolveConfig(process.cwd(), repoRoot);
   const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
 
   heading(`${icons.folder} Worktrees`);
 
@@ -423,7 +454,8 @@ export async function listWorktrees() {
 
   for (const wt of worktrees) {
     const isCurrent = currentPath === wt.path || currentPath.startsWith(wt.path + '/');
-    worktreeItem(wt.name, wt.path, isCurrent);
+    const wtColor = getWorktreeColor(repoRoot, wt.name);
+    worktreeItem(wt.name, wt.path, isCurrent, wtColor);
     const branchDisplay = wt.branch === 'unknown'
       ? colors.warning('detached HEAD')
       : colors.branch(wt.branch);
@@ -436,14 +468,16 @@ export async function listWorktrees() {
   spacer();
 }
 
-export async function removeWorktreeFlow() {
-  showMiniLogo();
+export async function removeWorktreeFlow(options = {}) {
   await ensureGitRepo();
+  const repoRoot = await getRepoRoot();
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
 
   heading(`${icons.trash} Remove Worktree`);
 
-  const repoRoot = await getRepoRoot();
-  const config = resolveConfig(process.cwd(), repoRoot);
   const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
 
@@ -459,8 +493,9 @@ export async function removeWorktreeFlow() {
     const choices = worktrees.map((wt) => {
       const isCurrent = currentPath === wt.path || currentPath.startsWith(wt.path + '/');
       const currentLabel = isCurrent ? colors.warning(' (you are here)') : '';
+      const wtColor = getWorktreeColor(repoRoot, wt.name);
       return {
-        name: `${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}${currentLabel}`,
+        name: formatWorktreeChoice(wt, wtColor) + currentLabel,
         value: wt,
         description: wt.path,
       };
@@ -491,7 +526,13 @@ export async function removeWorktreeFlow() {
     }
 
     spacer();
-    warning(`This will remove: ${colors.path(selected.path)}`);
+    const selectedColor = getWorktreeColor(repoRoot, selected.name);
+    const colorDot = colorIndicator(selectedColor);
+    warning(`${colorDot} This will remove: ${colors.path(selected.path)}`);
+    const preDestroyHooks = config.hooks?.['pre-destroy'];
+    if (preDestroyHooks?.length) {
+      info(`Hooks:    ${colors.muted(`pre-destroy (${preDestroyHooks.length} command${preDestroyHooks.length === 1 ? '' : 's'}) will run first`)}`);
+    }
     spacer();
 
     const confirmed = await confirm({
@@ -503,6 +544,42 @@ export async function removeWorktreeFlow() {
     if (!confirmed) {
       info('Cancelled');
       return;
+    }
+
+    // Run pre-destroy hooks
+    const preDestroyCommands = config.hooks?.['pre-destroy'];
+    if (preDestroyCommands && preDestroyCommands.length > 0) {
+      spacer();
+      const hookSpinner = ora({
+        text: 'Running pre-destroy hooks...',
+        color: 'magenta',
+      }).start();
+
+      const hookResults = await runHooks(
+        'pre-destroy',
+        config,
+        { source: repoRoot, path: selected.path, branch: selected.branch, name: selected.name, color: getWorktreeColor(repoRoot, selected.name) },
+        {
+          verbose: options.verbose,
+          onCommandStart: (cmd, i, total) => {
+            hookSpinner.text = total > 1
+              ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
+              : `Running pre-destroy hooks... (${cmd})`;
+          },
+        }
+      );
+
+      const failed = hookResults.filter((r) => !r.success);
+      if (failed.length === 0) {
+        hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
+      } else {
+        hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+        for (const f of failed) {
+          warning(`Hook failed: ${colors.muted(f.command)}`);
+          if (f.error) info(colors.muted(f.error));
+        }
+      }
+      spacer();
     }
 
     const spinner = ora({
@@ -536,7 +613,10 @@ export async function removeWorktreeFlow() {
 
       spinner.succeed(colors.success('Worktree removed!'));
       spacer();
-      success(`Removed ${colors.highlight(selected.name)}`);
+      const removedColor = getWorktreeColor(repoRoot, selected.name);
+      const removedColorDot = colorIndicator(removedColor);
+      removeWorktreeColor(repoRoot, selected.name);
+      success(`${removedColorDot} Removed ${colors.highlight(selected.name)}`);
 
       if (isInsideSelected) {
         spacer();
@@ -556,15 +636,17 @@ export async function removeWorktreeFlow() {
   }
 }
 
-export async function mergeWorktreeFlow() {
-  showMiniLogo();
+export async function mergeWorktreeFlow(options = {}) {
   await ensureGitRepo();
+  const repoRoot = await getRepoRoot();
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
 
   heading(`🔀 Merge Worktree`);
 
-  const repoRoot = await getRepoRoot();
   const mainPath = await getMainRepoPath();
-  const config = resolveConfig(process.cwd(), repoRoot);
   const worktrees = await getWorktreesInBase(repoRoot, config);
   const currentPath = process.cwd();
   const isAtHome = currentPath === mainPath;
@@ -579,11 +661,14 @@ export async function mergeWorktreeFlow() {
 
   try {
     // Select worktree to merge
-    const wtChoices = worktrees.map((wt) => ({
-      name: `${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}`,
-      value: wt,
-      description: wt.path,
-    }));
+    const wtChoices = worktrees.map((wt) => {
+      const wtColor = getWorktreeColor(repoRoot, wt.name);
+      return {
+        name: formatWorktreeChoice(wt, wtColor),
+        value: wt,
+        description: wt.path,
+      };
+    });
 
     wtChoices.push({
       name: `${colors.muted(icons.cross + '  Cancel')}`,
@@ -682,7 +767,9 @@ export async function mergeWorktreeFlow() {
     // Confirm merge
     spacer();
     divider();
-    info(`From: ${colors.highlight(selectedWt.branch)} ${colors.muted(`(${selectedWt.name})`)}`);
+    const selectedColor = getWorktreeColor(repoRoot, selectedWt.name);
+    const selectedColorDot = colorIndicator(selectedColor);
+    info(`${selectedColorDot} From: ${colors.highlight(selectedWt.branch)} ${colors.muted(`(${selectedWt.name})`)}`);
     info(`Into: ${colors.branch(targetBranch)}`);
     divider();
     spacer();
@@ -719,6 +806,42 @@ export async function mergeWorktreeFlow() {
       });
 
       if (cleanup) {
+        // Run pre-destroy hooks before removing the worktree
+        const preDestroyCommands = config.hooks?.['pre-destroy'];
+        if (preDestroyCommands && preDestroyCommands.length > 0) {
+          spacer();
+          const hookSpinner = ora({
+            text: 'Running pre-destroy hooks...',
+            color: 'magenta',
+          }).start();
+
+          const hookResults = await runHooks(
+            'pre-destroy',
+            config,
+            { source: repoRoot, path: selectedWt.path, branch: selectedWt.branch, name: selectedWt.name, color: getWorktreeColor(repoRoot, selectedWt.name) },
+            {
+              verbose: options.verbose,
+              onCommandStart: (cmd, i, total) => {
+                hookSpinner.text = total > 1
+                  ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
+                  : `Running pre-destroy hooks... (${cmd})`;
+              },
+            }
+          );
+
+          const failed = hookResults.filter((r) => !r.success);
+          if (failed.length === 0) {
+            hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
+          } else {
+            hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+            for (const f of failed) {
+              warning(`Hook failed: ${colors.muted(f.command)}`);
+              if (f.error) info(colors.muted(f.error));
+            }
+          }
+          spacer();
+        }
+
         const cleanupSpinner = ora({
           text: 'Cleaning up...',
           color: 'yellow',
@@ -726,6 +849,7 @@ export async function mergeWorktreeFlow() {
 
         try {
           await removeWorktree(selectedWt.path, false, mainPath);
+          removeWorktreeColor(repoRoot, selectedWt.name);
           cleanupSpinner.succeed(colors.success('Worktree removed'));
 
           // Ask about deleting branch
@@ -764,8 +888,12 @@ export async function mergeWorktreeFlow() {
 }
 
 export async function goHome() {
-  showMiniLogo();
   await ensureGitRepo();
+  const repoRoot = await getRepoRoot();
+  const config = resolveConfig(process.cwd(), repoRoot);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
 
   const mainPath = await getMainRepoPath();
   const currentPath = process.cwd();
@@ -792,16 +920,18 @@ export async function goHome() {
   spacer();
   success(`Heading home... ${icons.home}`);
   console.log(`  ${colors.muted('Path:')} ${colors.path(mainPath)}`);
-
+  resetTabColor();
   showCdHint(mainPath);
 }
 
 export async function goToWorktree(name) {
-  showMiniLogo();
   await ensureGitRepo();
-
   const repoRoot = await getRepoRoot();
   const config = resolveConfig(process.cwd(), repoRoot);
+  const currentWt = await getCurrentWorktreeInfo(repoRoot, config);
+  const wtColor = currentWt ? getWorktreeColor(repoRoot, currentWt.name) : null;
+  showMiniLogo(currentWt ? { ...currentWt, color: wtColor } : null);
+
   const worktrees = await getWorktreesInBase(repoRoot, config);
 
   if (worktrees.length === 0) {
@@ -847,8 +977,9 @@ export async function goToWorktree(name) {
       const choices = worktrees.map((wt) => {
         const isCurrent = currentPath === wt.path || currentPath.startsWith(wt.path + '/');
         const currentLabel = isCurrent ? colors.muted(' (current)') : '';
+        const wtColor = getWorktreeColor(repoRoot, wt.name);
         return {
-          name: `${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}${currentLabel}`,
+          name: formatWorktreeChoice(wt, wtColor) + currentLabel,
           value: wt,
           description: wt.path,
         };
@@ -876,8 +1007,12 @@ export async function goToWorktree(name) {
   }
 
   spacer();
-  success(`Jumping to ${colors.highlight(selected.name)}`);
+  const selectedColor = getWorktreeColor(repoRoot, selected.name);
+  const selectedColorDot = colorIndicator(selectedColor);
+  success(`${selectedColorDot} Jumping to ${colors.highlight(selected.name)}`);
   console.log(`  ${colors.muted('Path:')} ${colors.path(selected.path)}`);
+
+  if (selectedColor) setTabColor(selectedColor);
 
   showCdHint(selected.path);
 }

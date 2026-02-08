@@ -107,6 +107,9 @@ Create `<repo>/.wt/config.json`:
     "post-create": [
       "npm install",
       "cp $WT_SOURCE/.env .env"
+    ],
+    "pre-destroy": [
+      "npm run clean"
     ]
   }
 }
@@ -120,16 +123,49 @@ Create `<repo>/.wt/config.json`:
 | `worktreesDir` | `string` | `~/projects/worktrees` | Directory where worktrees are created |
 | `branchPrefix` | `string` | `""` | Prefix for branch names (e.g., "username/") |
 | `hooks.post-create` | `string[]` | `[]` | Shell commands to run after creating a worktree |
+| `hooks.pre-destroy` | `string[]` | `[]` | Shell commands to run before removing a worktree |
 
 **Hook environment variables** (available in hook commands):
 
 | Variable | Description |
 |----------|-------------|
 | `WT_SOURCE` | Absolute path to the main repository |
-| `WT_BRANCH` | Branch name of the new worktree |
-| `WT_PATH` | Absolute path to the new worktree (also the cwd) |
+| `WT_BRANCH` | Branch name of the worktree |
+| `WT_PATH` | Absolute path to the worktree (also the cwd) |
+| `WT_NAME` | Worktree name (directory name, e.g. `feature-a`) |
+| `WT_COLOR` | Hex color assigned to this worktree (e.g. `#E53935`), for UI/theming |
 
-Hook commands run with cwd set to the new worktree path. If a hook command fails, a warning is shown but the worktree creation still succeeds.
+Each new worktree is assigned a unique color from a fixed palette (stored in `<repo>/.wt/worktree-colors.json`). In supported terminals (iTerm2, WezTerm, Ghostty, Kitty, Windows Terminal, Alacritty), the tab color is set to that worktree's color when you create a worktree or run `wt go <name>`. Colors also appear as indicators (●) throughout the CLI UI.
+
+Hook commands run with cwd set to the worktree path. To run a Node script that lives in the main repo (e.g. `<repo>/.wt/scripts/foo.js`), use `WT_SOURCE`: `node "$WT_SOURCE/.wt/scripts/foo.js"` — `./scripts/foo.js` would look inside the worktree, not the main repo. If a hook command fails, a warning is shown but the operation continues (worktree creation still succeeds; worktree removal still proceeds after pre-destroy).
+
+#### Worktree Color Configuration
+
+Override automatic colors or provide a custom palette:
+
+**Manual color assignment** (`.wt/config.json`):
+
+```json
+{
+  "worktreeColors": {
+    "feature-auth": "#FF5733",
+    "feature-payments": "#33FF57"
+  }
+}
+```
+
+**Custom color palette** (`.wt/config.json`):
+
+```json
+{
+  "colorPalette": [
+    "#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A",
+    "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"
+  ]
+}
+```
+
+Colors are stored per-repository in `.wt/worktree-colors.json` and support hierarchical configuration (global → repo → directory overrides).
 
 ## How It Works
 

@@ -395,3 +395,22 @@ export async function deleteBranch(branchName, force = false, cwd = process.cwd(
   await git.branch([flag, branchName]);
   return { success: true };
 }
+
+/**
+ * Get information about the current worktree if user is inside one.
+ * Returns the worktree object with name, path, and branch if inside a worktree.
+ * Returns null if in main repository or error occurs.
+ * @param {string} repoRoot - Git repository root
+ * @param {object} config - Configuration object from resolveConfig()
+ * @returns {Promise<object|null>} Worktree info object or null
+ */
+export async function getCurrentWorktreeInfo(repoRoot, config) {
+  const currentPath = process.cwd();
+  const worktrees = await getWorktreesInBase(repoRoot, config);
+
+  const currentWt = worktrees.find(wt =>
+    currentPath === wt.path || currentPath.startsWith(wt.path + '/')
+  );
+
+  return currentWt || null;
+}

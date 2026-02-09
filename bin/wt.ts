@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { program } from 'commander';
 import {
   mainMenu,
@@ -14,8 +16,12 @@ import {
 import { showHelp, showLogo, spacer, colors } from '../src/ui.js';
 import { setupCommand } from '../src/setup.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
-const { version } = require('../package.json');
+// Resolve package.json relative to project root (one level up from bin/)
+const packagePath = join(__dirname, '..', '..', 'package.json');
+const { version } = require(packagePath) as { version: string };
 
 program
   .name('wt')
@@ -27,7 +33,9 @@ program
   .command('new', { isDefault: false })
   .description('Create a new worktree interactively')
   .option('--no-hooks', 'Skip post-create hooks')
-  .action((args, cmd) => createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, hooks: args.hooks }));
+  .action((args: { hooks?: boolean }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, hooks: args.hooks });
+  });
 
 program
   .command('list')
@@ -39,12 +47,16 @@ program
   .command('remove')
   .alias('rm')
   .description('Remove a worktree interactively')
-  .action((_args, cmd) => removeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
+  .action((_args: unknown, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    removeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose });
+  });
 
 program
   .command('merge')
   .description('Merge a worktree branch back to main')
-  .action((_args, cmd) => mergeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
+  .action((_args: unknown, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    mergeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose });
+  });
 
 program
   .command('home')
@@ -55,7 +67,9 @@ program
   .command('go [name]')
   .alias('jump')
   .description('Jump to a worktree (interactive if no name)')
-  .action(goToWorktree);
+  .action((name?: string) => {
+    goToWorktree(name);
+  });
 
 program
   .command('setup')

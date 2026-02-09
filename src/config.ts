@@ -3,34 +3,35 @@ import { join } from 'path';
 import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { once } from 'events';
+import type { Config, HookResult, HookOptions } from './types.js';
 
 const CONFIG_DIR = '.wt';
 const CONFIG_FILE = 'config.json';
 const WORKTREE_COLORS_FILE = 'worktree-colors.json';
 
 /** Distinct hex colors (with #) for worktree tab/UI; cycle through for unique assignment. */
-export const WORKTREE_COLORS_PALETTE = [
+export const WORKTREE_COLORS_PALETTE: readonly string[] = [
   '#E53935', '#D81B60', '#8E24AA', '#5E35B1', '#3949AB', '#1E88E5', '#039BE5', '#00ACC1',
   '#00897B', '#43A047', '#7CB342', '#C0CA33', '#FDD835', '#FFB300', '#FB8C00', '#F4511E',
 ];
 
-function getWorktreeColorsPath(repoRoot) {
+function getWorktreeColorsPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, WORKTREE_COLORS_FILE);
 }
 
 /**
  * Load worktree name → hex color map from repo's .wt/worktree-colors.json.
- * @returns {Record<string, string>}
  */
-export function loadWorktreeColors(repoRoot) {
+export function loadWorktreeColors(repoRoot: string): Record<string, string> {
   const path = getWorktreeColorsPath(repoRoot);
   try {
     const raw = readFileSync(path, 'utf8');
-    const data = JSON.parse(raw);
+    const data = JSON.parse(raw) as unknown;
     if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-      const out = {};
+      const out: Record<string, string> = {};
       for (const [name, hex] of Object.entries(data)) {
-        if (typeof name === 'string' && typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+        // Filter out numeric keys (Object.entries converts them to strings, but we want to exclude them)
+        if (typeof name === 'string' && !/^\d+$/.test(name) && typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
           out[name] = hex;
         }
       }
@@ -45,7 +46,7 @@ export function loadWorktreeColors(repoRoot) {
 /**
  * Save worktree name → hex color map to repo's .wt/worktree-colors.json.
  */
-export function saveWorktreeColors(repoRoot, mapping) {
+export function saveWorktreeColors(repoRoot: string, mapping: Record<string, string>): void {
   const dir = join(repoRoot, CONFIG_DIR);
   const path = getWorktreeColorsPath(repoRoot);
   try {
@@ -61,15 +62,15 @@ export function saveWorktreeColors(repoRoot, mapping) {
  * uses first palette color not used by existing worktrees.
  * Persists and returns the hex color (e.g. "#E53935").
  */
-export function assignWorktreeColor(repoRoot, worktreeName) {
+export function assignWorktreeColor(repoRoot: string, worktreeName: string): string {
   const current = loadWorktreeColors(repoRoot);
 
   // Check if already assigned
-  let hex = current[worktreeName];
+  let hex: string | undefined = current[worktreeName];
   if (hex) return hex;
 
-  // Check config override
-  const config = resolveConfig(process.cwd(), repoRoot);
+  // Check config override - use repoRoot as cwd to ensure we find repo-level configs
+  const config = resolveConfig(repoRoot, repoRoot);
   if (config.worktreeColors?.[worktreeName]) {
     hex = config.worktreeColors[worktreeName];
     current[worktreeName] = hex;
@@ -78,7 +79,7 @@ export function assignWorktreeColor(repoRoot, worktreeName) {
   }
 
   // Auto-assign from palette (prefer custom palette if configured)
-  const palette = config.colorPalette || WORKTREE_COLORS_PALETTE;
+  const palette = config.colorPalette || [...WORKTREE_COLORS_PALETTE];
   const usedColors = new Set(Object.values(current));
 
   for (const c of palette) {
@@ -97,7 +98,7 @@ export function assignWorktreeColor(repoRoot, worktreeName) {
 /**
  * Get the assigned hex color for a worktree, or null if none.
  */
-export function getWorktreeColor(repoRoot, worktreeName) {
+export function getWorktreeColor(repoRoot: string, worktreeName: string): string | null {
   const current = loadWorktreeColors(repoRoot);
   return current[worktreeName] ?? null;
 }
@@ -105,7 +106,7 @@ export function getWorktreeColor(repoRoot, worktreeName) {
 /**
  * Remove a worktree's color assignment so the color can be reused.
  */
-export function removeWorktreeColor(repoRoot, worktreeName) {
+export function removeWorktreeColor(repoRoot: string, worktreeName: string): void {
   const current = loadWorktreeColors(repoRoot);
   if (worktreeName in current) {
     delete current[worktreeName];
@@ -118,12 +119,12 @@ export function removeWorktreeColor(repoRoot, worktreeName) {
  * Tries .wt/config.json first (for repo/directory configs), then config.json (for global configs).
  * Returns an object with defaults for any missing fields.
  */
-export function loadConfig(dirPath) {
+export function loadConfig(dirPath: string): Config {
   const configPaths = [
     join(dirPath, CONFIG_DIR, CONFIG_FILE),  // .wt/config.json (for repo/directory)
     join(dirPath, CONFIG_FILE),               // config.json (for global config dir)
   ];
-  const defaults = {
+  const defaults: Config = {
     projectsDir: undefined,
     worktreesDir: undefined,
     branchPrefix: undefined,
@@ -132,7 +133,7 @@ export function loadConfig(dirPath) {
     colorPalette: undefined,
   };
 
-  let raw;
+  let raw: string | undefined;
   for (const configPath of configPaths) {
     try {
       raw = readFileSync(configPath, 'utf8');
@@ -146,7 +147,7 @@ export function loadConfig(dirPath) {
     return defaults;
   }
 
-  let parsed;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -157,38 +158,40 @@ export function loadConfig(dirPath) {
     return defaults;
   }
 
-  const result = { ...defaults };
+  const parsedObj = parsed as Record<string, unknown>;
+  const result: Config = { ...defaults };
 
-  if (typeof parsed.projectsDir === 'string') {
-    result.projectsDir = parsed.projectsDir;
+  if (typeof parsedObj.projectsDir === 'string') {
+    result.projectsDir = parsedObj.projectsDir;
   }
 
-  if (typeof parsed.worktreesDir === 'string') {
-    result.worktreesDir = parsed.worktreesDir;
+  if (typeof parsedObj.worktreesDir === 'string') {
+    result.worktreesDir = parsedObj.worktreesDir;
   }
 
-  if (typeof parsed.branchPrefix === 'string') {
-    result.branchPrefix = parsed.branchPrefix;
+  if (typeof parsedObj.branchPrefix === 'string') {
+    result.branchPrefix = parsedObj.branchPrefix;
   }
 
-  if (typeof parsed.hooks === 'object' && parsed.hooks !== null && !Array.isArray(parsed.hooks)) {
-    for (const [hookName, commands] of Object.entries(parsed.hooks)) {
+  if (typeof parsedObj.hooks === 'object' && parsedObj.hooks !== null && !Array.isArray(parsedObj.hooks)) {
+    for (const [hookName, commands] of Object.entries(parsedObj.hooks)) {
       if (Array.isArray(commands) && commands.every((c) => typeof c === 'string')) {
-        result.hooks[hookName] = commands;
+        result.hooks![hookName] = commands;
       }
     }
   }
 
-  if (typeof parsed.worktreeColors === 'object' && parsed.worktreeColors !== null && !Array.isArray(parsed.worktreeColors)) {
-    for (const [name, hex] of Object.entries(parsed.worktreeColors)) {
+  if (typeof parsedObj.worktreeColors === 'object' && parsedObj.worktreeColors !== null && !Array.isArray(parsedObj.worktreeColors)) {
+    result.worktreeColors = {};
+    for (const [name, hex] of Object.entries(parsedObj.worktreeColors)) {
       if (typeof name === 'string' && typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
         result.worktreeColors[name] = hex;
       }
     }
   }
 
-  if (Array.isArray(parsed.colorPalette)) {
-    const validColors = parsed.colorPalette.filter(hex =>
+  if (Array.isArray(parsedObj.colorPalette)) {
+    const validColors = parsedObj.colorPalette.filter((hex: unknown): hex is string =>
       typeof hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(hex)
     );
     if (validColors.length > 0) {
@@ -202,14 +205,9 @@ export function loadConfig(dirPath) {
 /**
  * Find all config files from global to cwd within repo boundaries.
  * Walks up from cwd to repoRoot, collecting all .wt/config.json paths.
- *
- * @param {string} cwd - Current working directory
- * @param {string} repoRoot - Git repository root
- * @param {string} [globalConfigPath] - Path to global config (default: ~/.wt/config.json)
- * @returns {string[]} Array of config file paths (global first)
  */
-function findConfigFiles(cwd, repoRoot, globalConfigPath = join(homedir(), '.wt', CONFIG_FILE)) {
-  const paths = [];
+function findConfigFiles(cwd: string, repoRoot: string, globalConfigPath: string = join(homedir(), '.wt', CONFIG_FILE)): string[] {
+  const paths: string[] = [];
 
   // Add global config if it exists
   try {
@@ -230,7 +228,7 @@ function findConfigFiles(cwd, repoRoot, globalConfigPath = join(homedir(), '.wt'
   }
 
   // Collect config paths from repoRoot up to cwd
-  const configPaths = [];
+  const configPaths: string[] = [];
 
   // Start at repoRoot
   let current = normalizedRepoRoot;
@@ -264,16 +262,15 @@ function findConfigFiles(cwd, repoRoot, globalConfigPath = join(homedir(), '.wt'
  * Merge multiple config objects with last-wins strategy.
  * For scalar fields, last defined value wins.
  * For hooks object, merge all hook definitions.
- *
- * @param {Object[]} configs - Array of config objects (least specific first)
- * @returns {Object} Merged config
  */
-function mergeConfigs(configs) {
-  const result = {
+function mergeConfigs(configs: Config[]): Config {
+  const result: Config = {
     projectsDir: undefined,
     worktreesDir: undefined,
     branchPrefix: undefined,
     hooks: {},
+    worktreeColors: {},
+    colorPalette: undefined,
   };
 
   for (const config of configs) {
@@ -287,9 +284,19 @@ function mergeConfigs(configs) {
       result.branchPrefix = config.branchPrefix;
     }
     if (config.hooks && typeof config.hooks === 'object') {
+      if (!result.hooks) result.hooks = {};
       for (const [hookName, commands] of Object.entries(config.hooks)) {
-        result.hooks[hookName] = commands;
+        if (Array.isArray(commands)) {
+          result.hooks[hookName] = commands;
+        }
       }
+    }
+    if (config.worktreeColors && typeof config.worktreeColors === 'object') {
+      if (!result.worktreeColors) result.worktreeColors = {};
+      Object.assign(result.worktreeColors, config.worktreeColors);
+    }
+    if (config.colorPalette !== undefined) {
+      result.colorPalette = config.colorPalette;
     }
   }
 
@@ -299,14 +306,9 @@ function mergeConfigs(configs) {
 /**
  * Resolve hierarchical config by walking up from cwd to repoRoot.
  * Returns merged config with defaults for any missing fields.
- *
- * @param {string} [cwd] - Current working directory (default: process.cwd())
- * @param {string} repoRoot - Git repository root
- * @param {string} [globalConfigPath] - Override global config path (for testing)
- * @returns {Object} Resolved config with all fields
  */
-export function resolveConfig(cwd = process.cwd(), repoRoot, globalConfigPath) {
-  const defaults = {
+export function resolveConfig(cwd: string = process.cwd(), repoRoot: string, globalConfigPath?: string): Config {
+  const defaults: Required<Pick<Config, 'projectsDir' | 'worktreesDir' | 'branchPrefix' | 'hooks'>> = {
     projectsDir: join(homedir(), 'projects'),
     worktreesDir: join(homedir(), 'projects', 'worktrees'),
     branchPrefix: '',
@@ -341,7 +343,9 @@ export function resolveConfig(cwd = process.cwd(), repoRoot, globalConfigPath) {
     projectsDir: merged.projectsDir ?? defaults.projectsDir,
     worktreesDir: merged.worktreesDir ?? defaults.worktreesDir,
     branchPrefix: merged.branchPrefix ?? defaults.branchPrefix,
-    hooks: merged.hooks,
+    hooks: merged.hooks ?? defaults.hooks,
+    worktreeColors: merged.worktreeColors ?? {},
+    colorPalette: merged.colorPalette,
   };
 }
 
@@ -351,30 +355,31 @@ const HOOK_TIMEOUT_MS = 300_000; // 5 minutes per command
  * Run hook commands sequentially. Each command runs with cwd set to `wtPath`
  * and receives WT_SOURCE, WT_BRANCH, and WT_PATH as environment variables.
  *
- * Options:
- * - verbose: if true, stream stdout/stderr to the terminal; if false, suppress output and only report results.
- * - onCommandStart(cmd, index, total): called before each command (e.g. to update a spinner).
- *
  * Returns an array of { command, success, error? } results.
  * Hook failures are non-fatal — they produce warnings but don't throw.
  */
-export async function runHooks(hookName, config, { source, path: wtPath, branch, name: wtName, color: wtColor }, options = {}) {
+export async function runHooks(
+  hookName: string,
+  config: Config,
+  context: { source: string; path: string; branch: string; name?: string; color?: string | null },
+  options: HookOptions = {}
+): Promise<HookResult[]> {
   const commands = config.hooks?.[hookName];
   if (!commands || commands.length === 0) return [];
 
   const { verbose = false, onCommandStart } = options;
   const total = commands.length;
 
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    WT_SOURCE: source,
-    WT_BRANCH: branch,
-    WT_PATH: wtPath,
-    ...(wtName !== undefined && { WT_NAME: wtName }),
-    ...(wtColor !== undefined && wtColor !== null && { WT_COLOR: wtColor }),
+    WT_SOURCE: context.source,
+    WT_BRANCH: context.branch,
+    WT_PATH: context.path,
+    ...(context.name !== undefined && { WT_NAME: context.name }),
+    ...(context.color !== undefined && context.color !== null && { WT_COLOR: context.color }),
   };
 
-  const results = [];
+  const results: HookResult[] = [];
 
   for (let i = 0; i < commands.length; i++) {
     const cmd = commands[i];
@@ -384,21 +389,21 @@ export async function runHooks(hookName, config, { source, path: wtPath, branch,
 
     const child = spawn(cmd, [], {
       shell: true,
-      cwd: wtPath,
+      cwd: context.path,
       env,
       stdio: ['inherit', 'pipe', 'pipe'],
     });
 
-    const stderrChunks = [];
+    const stderrChunks: Buffer[] = [];
     if (verbose) {
-      child.stdout.pipe(process.stdout);
-      child.stderr.on('data', (chunk) => {
+      child.stdout?.pipe(process.stdout);
+      child.stderr?.on('data', (chunk: Buffer) => {
         process.stderr.write(chunk);
         stderrChunks.push(chunk);
       });
     } else {
-      child.stdout.on('data', () => {}); // consume to avoid blocking the child
-      child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+      child.stdout?.on('data', () => {}); // consume to avoid blocking the child
+      child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
     }
 
     const timeoutId = setTimeout(() => {
@@ -406,7 +411,7 @@ export async function runHooks(hookName, config, { source, path: wtPath, branch,
     }, HOOK_TIMEOUT_MS);
 
     try {
-      const [code, signal] = await once(child, 'exit');
+      const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
       clearTimeout(timeoutId);
       if (code === 0 && !signal) {
         results.push({ command: cmd, success: true });
@@ -418,7 +423,8 @@ export async function runHooks(hookName, config, { source, path: wtPath, branch,
     } catch (err) {
       clearTimeout(timeoutId);
       const stderr = Buffer.concat(stderrChunks).toString().trim();
-      results.push({ command: cmd, success: false, error: stderr || err.message });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      results.push({ command: cmd, success: false, error: stderr || errorMessage });
     }
   }
 

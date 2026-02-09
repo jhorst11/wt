@@ -2,9 +2,16 @@ import chalk from 'chalk';
 import gradient from 'gradient-string';
 import figures from 'figures';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import type { WorktreeInfo } from './types.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
-const { version } = require('../package.json');
+// Resolve package.json relative to project root (two levels up from src/)
+const packagePath = join(__dirname, '..', '..', 'package.json');
+const { version } = require(packagePath) as { version: string };
 
 // Custom gradient for the logo
 const wtGradient = gradient(['#00d4ff', '#7c3aed', '#f472b6']);
@@ -31,7 +38,7 @@ export const icons = {
   info: 'ℹ️',
   remote: '☁️',
   local: '💻',
-};
+} as const;
 
 export const colors = {
   primary: chalk.hex('#7c3aed'),
@@ -43,9 +50,9 @@ export const colors = {
   highlight: chalk.hex('#f472b6'),
   branch: chalk.hex('#34d399'),
   path: chalk.hex('#60a5fa'),
-};
+} as const;
 
-export function showLogo() {
+export function showLogo(): void {
   const logo = `
   ${wtGradient('╦ ╦╔═╗╦═╗╦╔═╔╦╗╦═╗╔═╗╔═╗')}
   ${wtGradient('║║║║ ║╠╦╝╠╩╗ ║ ╠╦╝║╣ ║╣ ')}
@@ -55,45 +62,45 @@ export function showLogo() {
   console.log(logo);
 }
 
-export function showMiniLogo(worktreeInfo = null) {
+export function showMiniLogo(worktreeInfo: WorktreeInfo | null = null): void {
   console.log(`\n  ${icons.tree} ${wtGradient('worktree')} ${colors.muted(`v${version}`)}`);
   if (worktreeInfo) {
-    const colorDot = colorIndicator(worktreeInfo.color);
+    const colorDot = colorIndicator(worktreeInfo.color ?? null);
     console.log(`  ${colorDot} ${colors.highlight(worktreeInfo.name)} ${colors.muted(`→ ${worktreeInfo.branch}`)}`);
   }
   console.log('');
 }
 
-export function success(message) {
+export function success(message: string): void {
   console.log(`  ${colors.success(icons.check)} ${message}`);
 }
 
-export function error(message) {
+export function error(message: string): void {
   console.log(`  ${colors.error(icons.cross)} ${message}`);
 }
 
-export function warning(message) {
+export function warning(message: string): void {
   console.log(`  ${colors.warning(icons.warning)} ${message}`);
 }
 
-export function info(message) {
+export function info(message: string): void {
   console.log(`  ${colors.secondary(icons.info)} ${message}`);
 }
 
-export function heading(text) {
+export function heading(text: string): void {
   console.log(`\n  ${colors.primary.bold(text)}\n`);
 }
 
-export function subheading(text) {
+export function subheading(text: string): void {
   console.log(`  ${colors.muted(text)}`);
 }
 
-export function listItem(text, indent = 2) {
+export function listItem(text: string, indent: number = 2): void {
   const spaces = ' '.repeat(indent);
   console.log(`${spaces}${colors.secondary(icons.bullet)} ${text}`);
 }
 
-export function branchItem(name, isCurrent = false, isRemote = false) {
+export function branchItem(name: string, isCurrent: boolean = false, isRemote: boolean = false): void {
   const icon = isRemote ? icons.remote : icons.local;
   const prefix = isCurrent ? colors.success(icons.pointer) : ' ';
   const branchName = isCurrent ? colors.success.bold(name) : colors.branch(name);
@@ -101,7 +108,7 @@ export function branchItem(name, isCurrent = false, isRemote = false) {
   console.log(`  ${prefix} ${icon} ${branchName}${typeLabel}`);
 }
 
-export function worktreeItem(name, path, isCurrent = false, color = null) {
+export function worktreeItem(name: string, path: string, isCurrent: boolean = false, color: string | null = null): void {
   const prefix = isCurrent ? colors.success(icons.pointer) : ' ';
   const nameDisplay = isCurrent ? colors.success.bold(name) : colors.highlight(name);
   const colorDot = colorIndicator(color);
@@ -110,21 +117,19 @@ export function worktreeItem(name, path, isCurrent = false, color = null) {
   console.log(`      ${colors.muted(path)}`);
 }
 
-export function divider() {
+export function divider(): void {
   console.log(colors.muted('  ─'.repeat(20)));
 }
 
-export function spacer() {
+export function spacer(): void {
   console.log('');
 }
 
 /**
  * Convert hex color to chalk color function.
  * Falls back to gray for invalid hex.
- * @param {string} hex - Hex color like "#E53935" or "E53935"
- * @returns {Function} Chalk color function
  */
-export function hexToChalk(hex) {
+export function hexToChalk(hex: string | null | undefined): typeof chalk.gray {
   if (!hex) return chalk.gray;
   const clean = hex.replace(/^#/, '');
   if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return chalk.gray;
@@ -134,10 +139,8 @@ export function hexToChalk(hex) {
 /**
  * Create a colored circle indicator (●) for visual color display.
  * Returns empty string if hex is null/invalid.
- * @param {string} hex - Hex color like "#E53935"
- * @returns {string} Colored circle character or empty string
  */
-export function colorIndicator(hex) {
+export function colorIndicator(hex: string | null | undefined): string {
   if (!hex) return '';
   const color = hexToChalk(hex);
   return color('●'); // U+25CF filled circle
@@ -145,10 +148,8 @@ export function colorIndicator(hex) {
 
 /**
  * Convert hex to RGB components for terminal sequences.
- * @param {string} hex - Hex color like "#E53935"
- * @returns {{r: number, g: number, b: number}} RGB components 0-255
  */
-export function hexToRgb(hex) {
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace(/^#/, '');
   return {
     r: parseInt(clean.slice(0, 2), 16),
@@ -160,9 +161,8 @@ export function hexToRgb(hex) {
 /**
  * Create a colored divider using the specified hex color.
  * Falls back to muted color if hex is invalid.
- * @param {string} hex - Hex color like "#E53935"
  */
-export function coloredDivider(hex) {
+export function coloredDivider(hex: string | null | undefined): void {
   const color = hex ? hexToChalk(hex) : colors.muted;
   console.log(color('  ─'.repeat(20)));
 }
@@ -170,11 +170,17 @@ export function coloredDivider(hex) {
 /**
  * Detect terminal type for appropriate color sequences.
  * Checks TERM_PROGRAM, TERM, WT_SESSION, and COLORTERM env vars.
- * @returns {string} Terminal type: 'iterm2' | 'wezterm' | 'alacritty' |
- *                   'kitty' | 'ghostty' | 'windows-terminal' | 'vscode' |
- *                   'osc-generic' | 'unsupported'
  */
-export function detectTerminal() {
+export function detectTerminal():
+  | 'iterm2'
+  | 'wezterm'
+  | 'alacritty'
+  | 'kitty'
+  | 'ghostty'
+  | 'windows-terminal'
+  | 'vscode'
+  | 'osc-generic'
+  | 'unsupported' {
   const termProgram = process.env.TERM_PROGRAM || '';
   const term = process.env.TERM || '';
   const colorTerm = process.env.COLORTERM || '';
@@ -197,9 +203,8 @@ export function detectTerminal() {
  * Set terminal tab color (supports multiple terminal types).
  * Works with iTerm2, WezTerm, Kitty, Alacritty, Windows Terminal.
  * No-op if stdout is not a TTY or terminal is unsupported.
- * @param {string} hex - Hex color like "#E53935" or "E53935"
  */
-export function setTabColor(hex) {
+export function setTabColor(hex: string | null | undefined): void {
   if (!process.stdout.isTTY || !hex) return;
 
   const terminal = detectTerminal();
@@ -238,7 +243,7 @@ export function setTabColor(hex) {
  * Reset terminal tab color to default.
  * Gracefully handles multiple terminal types.
  */
-export function resetTabColor() {
+export function resetTabColor(): void {
   if (!process.stdout.isTTY) return;
 
   const terminal = detectTerminal();
@@ -264,24 +269,24 @@ export function resetTabColor() {
   }
 }
 
-export function formatBranchChoice(branch, type = 'local') {
+export function formatBranchChoice(branch: string, type: 'local' | 'remote' = 'local'): string {
   const icon = type === 'remote' ? icons.remote : icons.local;
   const typeLabel = type === 'remote' ? chalk.dim(' (remote)') : '';
   return `${icon}  ${branch}${typeLabel}`;
 }
 
-export function formatWorktreeChoice(wt, color = null) {
+export function formatWorktreeChoice(wt: { name: string; branch: string }, color: string | null = null): string {
   const colorDot = colorIndicator(color);
   const prefix = colorDot ? `${colorDot} ` : '';
   return `${prefix}${icons.folder}  ${colors.highlight(wt.name)} ${colors.muted(`→ ${wt.branch}`)}`;
 }
 
-export function showHelp() {
+export function showHelp(): void {
   showLogo();
 
   console.log(colors.primary.bold('  Commands:\n'));
 
-  const commands = [
+  const commands: Array<[string, string]> = [
     ['wt', 'Interactive menu to manage worktrees'],
     ['wt new', 'Create a new worktree interactively'],
     ['wt list|ls', 'List all worktrees for current repo'],

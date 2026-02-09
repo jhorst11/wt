@@ -1,0 +1,101 @@
+name: PR Build and Test
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-commits:
+    name: Check Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Validate commit messages
+        run: |
+          # Get commits in this PR
+          if [ "${{ github.event.pull_request.base.sha }}" != "" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            
+            echo "Checking commits from $BASE_SHA to $HEAD_SHA"
+            
+            # Get list of commits
+            COMMITS=$(git log --format=%H $BASE_SHA..$HEAD_SHA)
+            
+            if [ -z "$COMMITS" ]; then
+              echo "No commits found in PR"
+              exit 0
+            fi
+            
+            # Check each commit message
+            FAILED=0
+            for COMMIT in $COMMITS; do
+              COMMIT_MSG=$(git log --format=%B -n 1 $COMMIT)
+              echo "Checking commit: $COMMIT"
+              echo "$COMMIT_MSG" | npx commitlint || FAILED=1
+            done
+            
+            if [ $FAILED -eq 1 ]; then
+              echo ""
+              echo "❌ Some commit messages don't follow conventional commit format"
+              echo ""
+              echo "Commit messages must follow the format:"
+              echo "  <type>(<scope>): <subject>"
+              echo ""
+              echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+              echo ""
+              echo "Examples:"
+              echo "  feat: add new command"
+              echo "  fix: resolve worktree creation bug"
+              echo "  feat(commands): add merge workflow"
+              echo "  fix(config): handle missing config file"
+              echo ""
+              echo "For breaking changes, include BREAKING CHANGE: in the body"
+              exit 1
+            else
+              echo "✅ All commit messages are valid"
+            fi
+          else
+            echo "Could not determine base SHA, skipping commit validation"
+          fi
+
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Test
+        run: npm test

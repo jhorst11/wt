@@ -15,7 +15,9 @@
     "start": "node dist/bin/wt.js",
     "test": "npm run build && node --test test/*.test.js",
     "commitlint": "commitlint --edit",
-    "prepare": "husky || true"
+    "prepare": "husky",
+    "pack": "npm run build && npm pack --dry-run",
+    "release:dry-run": "npm run build && npx semantic-release --dry-run"
   },
   "keywords": [
     "git",

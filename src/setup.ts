@@ -15,9 +15,10 @@ import {
   icons,
   divider,
 } from './ui.js';
+import type { ShellConfig, WrapperStatus } from './types.js';
 
 // Shell detection
-export function detectShell() {
+export function detectShell(): 'zsh' | 'bash' | 'fish' | 'unknown' {
   const shell = process.env.SHELL || '';
 
   if (shell.includes('zsh')) return 'zsh';
@@ -30,11 +31,11 @@ export function detectShell() {
   return 'unknown';
 }
 
-export function getShellConfig() {
+export function getShellConfig(): ShellConfig | null {
   const shell = detectShell();
   const home = homedir();
 
-  const configs = {
+  const configs: Record<string, ShellConfig> = {
     zsh: {
       name: 'Zsh',
       rcFile: join(home, '.zshrc'),
@@ -94,13 +95,13 @@ end`,
   return configs[shell] || null;
 }
 
-export function isWrapperInstalled() {
+export function isWrapperInstalled(): boolean {
   // Check if we're running through the wrapper
   // The wrapper would need to set this env var
   return process.env.WT_WRAPPER === '1';
 }
 
-export function checkWrapperInRcFile() {
+export function checkWrapperInRcFile(): WrapperStatus {
   const config = getShellConfig();
   if (!config) return { installed: false, reason: 'unknown-shell' };
 
@@ -119,7 +120,7 @@ export function checkWrapperInRcFile() {
   }
 }
 
-export async function setupCommand() {
+export async function setupCommand(): Promise<void> {
   showMiniLogo();
   heading(`${icons.sparkles} Shell Setup`);
 
@@ -200,7 +201,7 @@ export async function setupCommand() {
   }
 }
 
-async function autoInstall(config) {
+async function autoInstall(config: ShellConfig): Promise<void> {
   spacer();
 
   try {
@@ -215,14 +216,15 @@ async function autoInstall(config) {
     console.log(`  ${colors.muted('Or just restart your terminal.')}`);
     spacer();
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
     error(`Failed to write to ${config.rcFile}`);
-    error(err.message);
+    error(errorMessage);
     spacer();
     showManualInstructions(config);
   }
 }
 
-function showManualInstructions(config) {
+function showManualInstructions(config: ShellConfig): void {
   spacer();
   console.log(`  ${colors.muted('Add this to')} ${colors.path(config.rcFile)}${colors.muted(':')}`);
   spacer();
@@ -235,7 +237,7 @@ function showManualInstructions(config) {
 }
 
 // Helper to show a gentle nudge if wrapper isn't set up
-export function showCdHint(path) {
+export function showCdHint(path: string): void {
   // Check if we're running through the shell wrapper with a cd file
   const cdFile = process.env.WT_CD_FILE;
   if (cdFile && isWrapperInstalled()) {

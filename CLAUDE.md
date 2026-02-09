@@ -6,22 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `wt` is an interactive CLI for managing git worktrees. It provides a beautiful terminal UI for creating, listing, navigating, and merging worktrees without dealing with raw git commands. The tool includes optional shell integration that enables automatic directory navigation.
 
-## Development Commands
-
-```bash
-# Run the CLI locally
-npm start
-
-# Test the CLI (runs the local version)
-node bin/wt.js
-
-# Install globally for testing
-npm install -g .
-
-# Or link for development
-npm link
-```
-
 ## Architecture
 
 ### Core Module Separation
@@ -128,44 +112,11 @@ All git functions accept optional `cwd` parameter and use simple-git instances. 
 - **package.json** - ES module, bin entry point at `./bin/wt.js`, publishes bin/, src/, shell/
 - **shell/wt.sh** - Bash/Zsh wrapper with tab completion (legacy, replaced by built-in setup)
 
-## Dependencies
-
-- `simple-git` - Git command wrapper
-- `@inquirer/prompts` - Modern interactive prompts
-- `commander` - CLI framework
-- `chalk` - Terminal colors
-- `gradient-string` - Gradient text effects
-- `ora` - Loading spinners
-- `figures` - Cross-platform Unicode symbols
 
 ## Team Members
 
-The development team consists of three specialized agents:
+see ./claude/team/CLAUDE.md for information using your team
 
-### 🔧 Gary-GitPro
-**Role:** Git operations specialist and bug fix expert
+## Skill
 
-Handles all git-related issues and fixes. Maintains the core `src/git.js` module, including worktree CRUD operations, branch management, merge workflows, and debugging repository state problems. Ensures all git operations are safe and maintain repository integrity.
-
-**Key Focus:** Deep debugging, git state management, branch lifecycle, worktree operations
-
-### 🖥️ Herb-CLIPro
-**Role:** CLI framework and command flow specialist
-
-Designs and implements user-facing command flows and interactions. Maintains `src/commands.js` command orchestration, Commander.js CLI structure, interactive prompts, and shell integration. Ensures intuitive and responsive command flows with clear user feedback.
-
-**Key Focus:** Command orchestration, user interaction, CLI UX, shell integration
-
-### ✅ Terry-TestPro
-**Role:** Testing and quality assurance specialist
-
-Develops comprehensive test coverage for all modules. Tests git operations, CLI commands, interactive prompts, and shell integration across different environments. Ensures features work reliably and handle failures gracefully.
-
-**Key Focus:** Test coverage, quality assurance, cross-platform testing, edge cases
-
-## Publishing
-
-The package is published to npm as `@jhorst11/wt`. Users can install with:
-```bash
-npm install -g @jhorst11/wt
-```
+./skill is meant to be used by consumers of this tool to guide LLMs in using this tool. Make sure any time you make a functional change to the tool that the skill is updated.

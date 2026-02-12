@@ -4,16 +4,20 @@
   "description": "🌳 Beautiful interactive git worktree manager",
   "type": "module",
   "bin": {
-    "wt": "./bin/wt.js"
+    "wt": "./dist/bin/wt.js"
   },
   "files": [
-    "bin",
-    "src",
+    "dist",
     "shell"
   ],
   "scripts": {
-    "start": "node bin/wt.js",
-    "test": "node --test test/*.test.js"
+    "build": "tsc",
+    "start": "node dist/bin/wt.js",
+    "test": "npm run build && node --test test/*.test.js",
+    "commitlint": "commitlint --edit",
+    "prepare": "husky",
+    "pack": "npm run build && npm pack --dry-run",
+    "release:dry-run": "npm run build && npx semantic-release --dry-run"
   },
   "keywords": [
     "git",
@@ -42,5 +46,15 @@
     "gradient-string": "^3.0.0",
     "ora": "^8.1.1",
     "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@types/node": "^25.2.2",
+    "husky": "^9.1.5",
+    "semantic-release": "^23.0.2",
+    "typescript": "^5.9.3"
   }
 }

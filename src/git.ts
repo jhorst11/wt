@@ -1,13 +1,14 @@
-import { simpleGit } from 'simple-git';
-import { join, basename, relative } from 'path';
+import { simpleGit, SimpleGit } from 'simple-git';
+import { join, basename } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { resolveConfig } from './config.js';
+import type { Config, Branch, Worktree, BranchResult, WorktreeResult } from './types.js';
 
-export async function getGit(cwd = process.cwd()) {
+export async function getGit(cwd: string = process.cwd()): Promise<SimpleGit> {
   return simpleGit(cwd);
 }
 
-export async function isGitRepo(cwd = process.cwd()) {
+export async function isGitRepo(cwd: string = process.cwd()): Promise<boolean> {
   try {
     const git = await getGit(cwd);
     await git.revparse(['--git-dir']);
@@ -17,7 +18,7 @@ export async function isGitRepo(cwd = process.cwd()) {
   }
 }
 
-export async function getRepoRoot(cwd = process.cwd()) {
+export async function getRepoRoot(cwd: string = process.cwd()): Promise<string | null> {
   try {
     const git = await getGit(cwd);
     const root = await git.revparse(['--show-toplevel']);
@@ -27,7 +28,7 @@ export async function getRepoRoot(cwd = process.cwd()) {
   }
 }
 
-export async function getCurrentBranch(cwd = process.cwd()) {
+export async function getCurrentBranch(cwd: string = process.cwd()): Promise<string | null> {
   try {
     const git = await getGit(cwd);
     const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
@@ -37,7 +38,7 @@ export async function getCurrentBranch(cwd = process.cwd()) {
   }
 }
 
-export async function getLocalBranches(cwd = process.cwd()) {
+export async function getLocalBranches(cwd: string = process.cwd()): Promise<Branch[]> {
   try {
     const git = await getGit(cwd);
     const result = await git.branchLocal();
@@ -50,7 +51,7 @@ export async function getLocalBranches(cwd = process.cwd()) {
   }
 }
 
-export async function getRemoteBranches(cwd = process.cwd()) {
+export async function getRemoteBranches(cwd: string = process.cwd()): Promise<Branch[]> {
   try {
     const git = await getGit(cwd);
     // Fetch latest from remote first
@@ -68,7 +69,11 @@ export async function getRemoteBranches(cwd = process.cwd()) {
   }
 }
 
-export async function getAllBranches(cwd = process.cwd()) {
+export async function getAllBranches(cwd: string = process.cwd()): Promise<{
+  local: Branch[];
+  remote: Branch[];
+  all: Branch[];
+}> {
   const [local, remote] = await Promise.all([
     getLocalBranches(cwd),
     getRemoteBranches(cwd),
@@ -81,13 +86,13 @@ export async function getAllBranches(cwd = process.cwd()) {
   return {
     local,
     remote: uniqueRemote,
-    all: [...local.map((b) => ({ ...b, type: 'local' })), ...uniqueRemote.map((b) => ({ ...b, type: 'remote' }))],
+    all: [...local.map((b) => ({ ...b, type: 'local' as const })), ...uniqueRemote.map((b) => ({ ...b, type: 'remote' as const }))],
   };
 }
 
-export function getWorktreesBase(repoRoot, config) {
-  const projectsDir = config.projectsDir.replace(/\/$/, '');
-  let repoRel;
+export function getWorktreesBase(repoRoot: string, config: Config): string {
+  const projectsDir = (config.projectsDir || '').replace(/\/$/, '');
+  let repoRel: string;
 
   if (repoRoot.startsWith(projectsDir + '/')) {
     repoRel = repoRoot.slice(projectsDir.length + 1);
@@ -95,19 +100,19 @@ export function getWorktreesBase(repoRoot, config) {
     repoRel = basename(repoRoot);
   }
 
-  return join(config.worktreesDir, repoRel);
+  return join(config.worktreesDir || '', repoRel);
 }
 
-export async function getWorktrees(cwd = process.cwd()) {
+export async function getWorktrees(cwd: string = process.cwd()): Promise<Worktree[]> {
   try {
     const git = await getGit(cwd);
     const result = await git.raw(['worktree', 'list', '--porcelain']);
-    const worktrees = [];
-    let current = {};
+    const worktrees: Array<Partial<Worktree> & { path: string }> = [];
+    let current: Partial<Worktree> & { path?: string } = {};
 
     for (const line of result.split('\n')) {
       if (line.startsWith('worktree ')) {
-        if (current.path) worktrees.push(current);
+        if (current.path) worktrees.push(current as Partial<Worktree> & { path: string });
         current = { path: line.slice(9) };
       } else if (line.startsWith('branch ')) {
         current.branch = line.slice(7).replace('refs/heads/', '');
@@ -117,26 +122,29 @@ export async function getWorktrees(cwd = process.cwd()) {
         current.detached = true;
       }
     }
-    if (current.path) worktrees.push(current);
+    if (current.path) worktrees.push(current as Partial<Worktree> & { path: string });
 
     // Add name (last part of path) and identify main vs worktrees
     return worktrees.map((wt, index) => ({
-      ...wt,
       name: basename(wt.path),
+      path: wt.path,
+      branch: wt.branch || 'unknown',
       isMain: index === 0,
+      bare: wt.bare,
+      detached: wt.detached,
     }));
   } catch {
     return [];
   }
 }
 
-export async function getWorktreesInBase(repoRoot, config) {
+export async function getWorktreesInBase(repoRoot: string, config: Config): Promise<Array<{ name: string; path: string; branch: string }>> {
   const base = getWorktreesBase(repoRoot, config);
   if (!existsSync(base)) return [];
 
   try {
     const entries = readdirSync(base);
-    const worktrees = [];
+    const worktrees: Array<{ name: string; path: string; branch: string }> = [];
 
     for (const entry of entries) {
       const entryPath = join(base, entry);
@@ -160,7 +168,7 @@ export async function getWorktreesInBase(repoRoot, config) {
   }
 }
 
-export async function getMainRepoPath(cwd = process.cwd()) {
+export async function getMainRepoPath(cwd: string = process.cwd()): Promise<string | null> {
   try {
     const git = await getGit(cwd);
     const result = await git.raw(['worktree', 'list', '--porcelain']);
@@ -171,7 +179,7 @@ export async function getMainRepoPath(cwd = process.cwd()) {
   }
 }
 
-export function buildBranchName(leaf, config) {
+export function buildBranchName(leaf: string, config: Config): string {
   const cleanLeaf = leaf.replace(/^\//, '').replace(/ /g, '-');
   const prefix = config.branchPrefix || '';
   if (prefix) {
@@ -180,7 +188,7 @@ export function buildBranchName(leaf, config) {
   return cleanLeaf;
 }
 
-export async function branchExistsLocal(branchName, cwd = process.cwd()) {
+export async function branchExistsLocal(branchName: string, cwd: string = process.cwd()): Promise<boolean> {
   try {
     const git = await getGit(cwd);
     // Do not use --quiet: simple-git swallows non-zero exit codes when output is
@@ -195,7 +203,7 @@ export async function branchExistsLocal(branchName, cwd = process.cwd()) {
   }
 }
 
-export async function branchExistsRemote(branchName, cwd = process.cwd()) {
+export async function branchExistsRemote(branchName: string, cwd: string = process.cwd()): Promise<boolean> {
   try {
     const git = await getGit(cwd);
     const result = await git.raw(['ls-remote', '--exit-code', '--heads', 'origin', branchName]);
@@ -205,7 +213,7 @@ export async function branchExistsRemote(branchName, cwd = process.cwd()) {
   }
 }
 
-export async function ensureBranch(branchName, baseBranch = null, cwd = process.cwd()) {
+export async function ensureBranch(branchName: string, baseBranch: string | null = null, cwd: string = process.cwd()): Promise<BranchResult> {
   const git = await getGit(cwd);
 
   // Resolve detached HEAD to the actual commit SHA so it's usable as a base
@@ -222,7 +230,7 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
     const remoteBranchName = baseBranch.replace('origin/', '');
     try {
       await git.fetch(['origin', `${remoteBranchName}:refs/remotes/origin/${remoteBranchName}`]);
-    } catch (fetchErr) {
+    } catch {
       // Fetch failed - verify the remote ref still exists locally from a previous fetch
       try {
         await git.revparse(['--verify', baseBranch]);
@@ -276,9 +284,12 @@ export async function ensureBranch(branchName, baseBranch = null, cwd = process.
   return { created: true, source: 'new' };
 }
 
-export async function createWorktree(name, branchName, baseBranch = null, cwd = process.cwd()) {
+export async function createWorktree(name: string, branchName: string, baseBranch: string | null = null, cwd: string = process.cwd()): Promise<WorktreeResult> {
   const git = await getGit(cwd);
   const repoRoot = await getRepoRoot(cwd);
+  if (!repoRoot) {
+    return { success: false, error: 'Not in a git repository' };
+  }
   const config = resolveConfig(cwd, repoRoot);
   const worktreesBase = getWorktreesBase(repoRoot, config);
 
@@ -316,13 +327,13 @@ export async function createWorktree(name, branchName, baseBranch = null, cwd = 
   };
 }
 
-export async function removeWorktree(path, force = false, cwd = process.cwd()) {
+export async function removeWorktree(path: string, force: boolean = false, cwd: string = process.cwd()): Promise<{ success: boolean }> {
   const git = await getGit(cwd);
 
   // Prune stale worktree references before removing
   await pruneWorktrees(cwd);
 
-  const args = ['worktree', 'remove'];
+  const args: string[] = ['worktree', 'remove'];
   if (force) args.push('--force');
   args.push(path);
 
@@ -330,13 +341,13 @@ export async function removeWorktree(path, force = false, cwd = process.cwd()) {
   return { success: true };
 }
 
-export async function pruneWorktrees(cwd = process.cwd()) {
+export async function pruneWorktrees(cwd: string = process.cwd()): Promise<{ success: boolean }> {
   const git = await getGit(cwd);
   await git.raw(['worktree', 'prune']);
   return { success: true };
 }
 
-export function isValidBranchName(name) {
+export function isValidBranchName(name: string | null | undefined): boolean {
   // Basic validation - git allows most characters but not some special ones
   if (!name || name.length === 0) return false;
   if (name.startsWith('-') || name.startsWith('.')) return false;
@@ -346,7 +357,12 @@ export function isValidBranchName(name) {
   return true;
 }
 
-export async function mergeBranch(sourceBranch, targetBranch = null, cwd = process.cwd()) {
+export async function mergeBranch(sourceBranch: string, targetBranch: string | null = null, cwd: string = process.cwd()): Promise<{
+  success: boolean;
+  merged: string;
+  into: string | null;
+  result: unknown;
+}> {
   const git = await getGit(cwd);
 
   // If target specified, checkout to it first
@@ -365,7 +381,7 @@ export async function mergeBranch(sourceBranch, targetBranch = null, cwd = proce
   };
 }
 
-export async function getMainBranch(cwd = process.cwd()) {
+export async function getMainBranch(cwd: string = process.cwd()): Promise<string> {
   const git = await getGit(cwd);
 
   // Try common main branch names
@@ -383,13 +399,13 @@ export async function getMainBranch(cwd = process.cwd()) {
   return branchNames[0] || 'main';
 }
 
-export async function hasUncommittedChanges(cwd = process.cwd()) {
+export async function hasUncommittedChanges(cwd: string = process.cwd()): Promise<boolean> {
   const git = await getGit(cwd);
   const status = await git.status();
   return !status.isClean();
 }
 
-export async function deleteBranch(branchName, force = false, cwd = process.cwd()) {
+export async function deleteBranch(branchName: string, force: boolean = false, cwd: string = process.cwd()): Promise<{ success: boolean }> {
   const git = await getGit(cwd);
   const flag = force ? '-D' : '-d';
   await git.branch([flag, branchName]);
@@ -400,11 +416,8 @@ export async function deleteBranch(branchName, force = false, cwd = process.cwd(
  * Get information about the current worktree if user is inside one.
  * Returns the worktree object with name, path, and branch if inside a worktree.
  * Returns null if in main repository or error occurs.
- * @param {string} repoRoot - Git repository root
- * @param {object} config - Configuration object from resolveConfig()
- * @returns {Promise<object|null>} Worktree info object or null
  */
-export async function getCurrentWorktreeInfo(repoRoot, config) {
+export async function getCurrentWorktreeInfo(repoRoot: string, config: Config): Promise<{ name: string; path: string; branch: string } | null> {
   const currentPath = process.cwd();
   const worktrees = await getWorktreesInBase(repoRoot, config);
 

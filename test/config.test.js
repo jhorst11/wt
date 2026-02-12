@@ -1,12 +1,22 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
 const tmpBase = realpathSync(mkdtempSync(join(tmpdir(), 'wt-config-test-')));
 
-const { loadConfig, runHooks, resolveConfig } = await import('../src/config.js');
+const {
+  loadConfig,
+  runHooks,
+  resolveConfig,
+  loadWorktreeColors,
+  saveWorktreeColors,
+  assignWorktreeColor,
+  getWorktreeColor,
+  removeWorktreeColor,
+  WORKTREE_COLORS_PALETTE,
+} = await import('../dist/src/config.js');
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -394,6 +404,221 @@ describe('runHooks', () => {
       branch: 'feat',
     });
     assert.equal(results[0].success, true, `cwd mismatch: ${results[0].error || ''}`);
+  });
+});
+
+// ─── Worktree Colors ──────────────────────────────────────
+
+describe('loadWorktreeColors', () => {
+  it('returns empty object when file does not exist', () => {
+    const repoDir = makeRepo('no-colors');
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, {});
+  });
+
+  it('returns empty object when file is invalid JSON', () => {
+    const repoDir = makeRepo('invalid-json-colors');
+    const configDir = join(repoDir, '.wt');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, 'worktree-colors.json'), 'not json{{{');
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, {});
+  });
+
+  it('returns empty object when file is an array', () => {
+    const repoDir = makeRepo('array-colors');
+    const configDir = join(repoDir, '.wt');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, 'worktree-colors.json'), '[1, 2, 3]');
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, {});
+  });
+
+  it('loads valid worktree colors', () => {
+    const repoDir = makeRepo('valid-colors');
+    const configDir = join(repoDir, '.wt');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'worktree-colors.json'),
+      JSON.stringify({ 'feature-a': '#E53935', 'feature-b': '#D81B60' })
+    );
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['feature-a'], '#E53935');
+    assert.equal(colors['feature-b'], '#D81B60');
+  });
+
+  it('filters out invalid hex colors', () => {
+    const repoDir = makeRepo('invalid-hex-colors');
+    const configDir = join(repoDir, '.wt');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'worktree-colors.json'),
+      JSON.stringify({
+        'valid': '#E53935',
+        'no-hash': 'E53935',
+        'short': '#E53',
+        'invalid-chars': '#GGGGGG',
+        'not-string': 12345,
+      })
+    );
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['valid'], '#E53935');
+    assert.equal(Object.keys(colors).length, 1);
+  });
+
+  it('filters out non-string keys', () => {
+    const repoDir = makeRepo('non-string-keys');
+    const configDir = join(repoDir, '.wt');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'worktree-colors.json'),
+      JSON.stringify({ 'valid': '#E53935', 123: '#D81B60' })
+    );
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['valid'], '#E53935');
+    assert.equal(Object.keys(colors).length, 1);
+  });
+});
+
+describe('saveWorktreeColors', () => {
+  it('creates directory and saves colors', () => {
+    const repoDir = makeRepo('save-colors');
+    const mapping = { 'feature-a': '#E53935', 'feature-b': '#D81B60' };
+    saveWorktreeColors(repoDir, mapping);
+
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, mapping);
+  });
+
+  it('overwrites existing colors file', () => {
+    const repoDir = makeRepo('overwrite-colors');
+    saveWorktreeColors(repoDir, { 'old': '#E53935' });
+    saveWorktreeColors(repoDir, { 'new': '#D81B60' });
+
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['old'], undefined);
+    assert.equal(colors['new'], '#D81B60');
+  });
+
+  it('handles empty mapping', () => {
+    const repoDir = makeRepo('empty-colors');
+    saveWorktreeColors(repoDir, {});
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, {});
+  });
+});
+
+describe('assignWorktreeColor', () => {
+  it('assigns first available palette color', () => {
+    const repoDir = makeRepo('assign-first-color');
+    const color = assignWorktreeColor(repoDir, 'feature-a');
+    assert.equal(color, WORKTREE_COLORS_PALETTE[0]);
+    assert.equal(getWorktreeColor(repoDir, 'feature-a'), WORKTREE_COLORS_PALETTE[0]);
+  });
+
+  it('assigns next available color when first is used', () => {
+    const repoDir = makeRepo('assign-next-color');
+    assignWorktreeColor(repoDir, 'feature-a');
+    const color = assignWorktreeColor(repoDir, 'feature-b');
+    assert.equal(color, WORKTREE_COLORS_PALETTE[1]);
+  });
+
+  it('returns existing color if already assigned', () => {
+    const repoDir = makeRepo('existing-color');
+    const firstColor = assignWorktreeColor(repoDir, 'feature-a');
+    const secondColor = assignWorktreeColor(repoDir, 'feature-a');
+    assert.equal(firstColor, secondColor);
+  });
+
+  it('uses config override when provided', () => {
+    const repoDir = makeRepo('config-override-color');
+    writeConfig(repoDir, { worktreeColors: { 'feature-a': '#FF0000' } });
+    const color = assignWorktreeColor(repoDir, 'feature-a');
+    assert.equal(color, '#FF0000');
+  });
+
+  it('cycles through palette when all colors are used', () => {
+    const repoDir = makeRepo('palette-exhaustion');
+    const smallPalette = ['#E53935', '#D81B60'];
+    writeConfig(repoDir, { colorPalette: smallPalette });
+
+    // Use all colors in palette
+    assignWorktreeColor(repoDir, 'wt1');
+    assignWorktreeColor(repoDir, 'wt2');
+
+    // Next assignment should cycle back
+    const color = assignWorktreeColor(repoDir, 'wt3');
+    assert.equal(color, smallPalette[0]);
+  });
+
+  it('uses custom palette when configured', () => {
+    const repoDir = makeRepo('custom-palette');
+    const customPalette = ['#FF0000', '#00FF00', '#0000FF'];
+    writeConfig(repoDir, { colorPalette: customPalette });
+    const color = assignWorktreeColor(repoDir, 'feature-a');
+    assert.equal(color, '#FF0000');
+  });
+
+  it('persists assignment to file', () => {
+    const repoDir = makeRepo('persist-color');
+    assignWorktreeColor(repoDir, 'feature-a');
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['feature-a'], WORKTREE_COLORS_PALETTE[0]);
+  });
+});
+
+describe('getWorktreeColor', () => {
+  it('returns null when worktree has no color', () => {
+    const repoDir = makeRepo('no-color-get');
+    assert.equal(getWorktreeColor(repoDir, 'nonexistent'), null);
+  });
+
+  it('returns assigned color', () => {
+    const repoDir = makeRepo('get-assigned-color');
+    const assigned = assignWorktreeColor(repoDir, 'feature-a');
+    const retrieved = getWorktreeColor(repoDir, 'feature-a');
+    assert.equal(retrieved, assigned);
+  });
+
+  it('returns null for worktree not in mapping', () => {
+    const repoDir = makeRepo('get-missing-color');
+    assignWorktreeColor(repoDir, 'feature-a');
+    assert.equal(getWorktreeColor(repoDir, 'feature-b'), null);
+  });
+});
+
+describe('removeWorktreeColor', () => {
+  it('removes color assignment', () => {
+    const repoDir = makeRepo('remove-color');
+    assignWorktreeColor(repoDir, 'feature-a');
+    assert.ok(getWorktreeColor(repoDir, 'feature-a') !== null);
+    removeWorktreeColor(repoDir, 'feature-a');
+    assert.equal(getWorktreeColor(repoDir, 'feature-a'), null);
+  });
+
+  it('does nothing if worktree has no color', () => {
+    const repoDir = makeRepo('remove-nonexistent-color');
+    removeWorktreeColor(repoDir, 'nonexistent');
+    const colors = loadWorktreeColors(repoDir);
+    assert.deepEqual(colors, {});
+  });
+
+  it('persists removal to file', () => {
+    const repoDir = makeRepo('persist-removal');
+    assignWorktreeColor(repoDir, 'feature-a');
+    assignWorktreeColor(repoDir, 'feature-b');
+    removeWorktreeColor(repoDir, 'feature-a');
+    const colors = loadWorktreeColors(repoDir);
+    assert.equal(colors['feature-a'], undefined);
+    assert.ok(colors['feature-b'] !== undefined);
+  });
+
+  it('allows color to be reused after removal', () => {
+    const repoDir = makeRepo('reuse-color');
+    const firstColor = assignWorktreeColor(repoDir, 'feature-a');
+    removeWorktreeColor(repoDir, 'feature-a');
+    const secondColor = assignWorktreeColor(repoDir, 'feature-b');
+    assert.equal(firstColor, secondColor);
   });
 });
 

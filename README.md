@@ -1,5 +1,7 @@
 # 🌳 wt-cli
 
+[![npm version](https://img.shields.io/npm/v/@jhorst11/wt)](https://www.npmjs.com/package/@jhorst11/wt)
+
 A beautiful, interactive CLI for managing git worktrees.
 
 ![Demo](https://via.placeholder.com/800x400?text=wt-cli+Demo)

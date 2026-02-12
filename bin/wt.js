@@ -26,7 +26,8 @@ program
 program
   .command('new', { isDefault: false })
   .description('Create a new worktree interactively')
-  .action((_args, cmd) => createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose }));
+  .option('--no-hooks', 'Skip post-create hooks')
+  .action((args, cmd) => createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, hooks: args.hooks }));
 
 program
   .command('list')

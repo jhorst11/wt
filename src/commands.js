@@ -356,7 +356,11 @@ export async function createWorktreeFlow(options = {}) {
     info(`Path:     ${colors.path(getWorktreesBase(repoRoot, config) + '/' + worktreeName)}`);
     const postCreateHooks = config.hooks?.['post-create'];
     if (postCreateHooks?.length) {
-      info(`Hooks:    ${colors.muted(`post-create (${postCreateHooks.length} command${postCreateHooks.length === 1 ? '' : 's'})`)}`);
+      if (options.hooks === false) {
+        info(`Hooks:    ${colors.muted('skipped (--no-hooks)')}`);
+      } else {
+        info(`Hooks:    ${colors.muted(`post-create (${postCreateHooks.length} command${postCreateHooks.length === 1 ? '' : 's'})`)}`);
+      }
     }
     divider();
     spacer();
@@ -406,7 +410,9 @@ export async function createWorktreeFlow(options = {}) {
 
       // Run post-create hooks
       const hookCommands = config.hooks?.['post-create'];
-      if (hookCommands && hookCommands.length > 0) {
+      if (options.hooks === false) {
+        info(colors.muted('Skipping post-create hooks (--no-hooks)'));
+      } else if (hookCommands && hookCommands.length > 0) {
         spacer();
         const hookSpinner = ora({
           text: 'Running post-create hooks...',

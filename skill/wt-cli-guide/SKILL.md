@@ -254,6 +254,7 @@ For step-by-step workflows and best practices, see [workflows.md](references/wor
 |---------|-------------|
 | `wt` | Open interactive menu |
 | `wt new` | Create a new worktree with prompts |
+| `wt new --no-hooks` | Create a new worktree, skipping post-create hooks |
 | `wt list` | Display all worktrees for current repo |
 | `wt go [name]` | Navigate to a worktree (requires shell integration) |
 | `wt home` | Return to main repository |

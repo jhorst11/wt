@@ -286,6 +286,49 @@ Repository-specific config `.wt/config.json`:
 - Quality standards built into workflow
 - Clear branch naming conventions
 
+## One-Liner Workflows
+
+For scripting or when you know exactly what you want, use shorthand arguments to skip interactive prompts.
+
+### Quick Feature Branch
+
+```bash
+# Create and jump to a feature worktree in two commands
+wt new my-feature --from main
+wt go my-feature
+```
+
+### Quick Cleanup
+
+```bash
+# Remove a worktree without any prompts
+wt rm my-feature --force
+
+# Or go home and delete current worktree in one step
+wt home --delete
+```
+
+### Merge and Clean Up
+
+```bash
+# Merge a worktree into main and auto-remove it
+wt merge my-feature --into main --cleanup
+
+# Same but skip pre-destroy hooks
+wt merge my-feature --into main --cleanup --no-hooks
+```
+
+### CI/Script Usage
+
+```bash
+# Create worktree, do work, merge, clean up — all non-interactive
+wt new hotfix-123 --from main --no-hooks
+wt go hotfix-123
+# ... do work, commit, push ...
+wt home
+wt merge hotfix-123 --into main --cleanup --no-hooks
+```
+
 ## Troubleshooting Tips
 
 ### Worktree won't create

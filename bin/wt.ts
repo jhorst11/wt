@@ -31,10 +31,12 @@ program
 
 program
   .command('new', { isDefault: false })
-  .description('Create a new worktree interactively')
+  .argument('[name]', 'Worktree name (skip name prompt)')
+  .description('Create a new worktree')
+  .option('--from <branch>', 'Base branch (skip source selection)')
   .option('--no-hooks', 'Skip post-create hooks')
-  .action((args: { hooks?: boolean }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
-    createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, hooks: args.hooks });
+  .action((name: string | undefined, args: { hooks?: boolean; from?: string }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    createWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, hooks: args.hooks, name, from: args.from });
   });
 
 program
@@ -46,22 +48,33 @@ program
 program
   .command('remove')
   .alias('rm')
-  .description('Remove a worktree interactively')
-  .action((_args: unknown, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
-    removeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose });
+  .argument('[name]', 'Worktree name to remove')
+  .description('Remove a worktree')
+  .option('--force', 'Skip confirmation and force-remove dirty worktrees')
+  .option('--no-hooks', 'Skip pre-destroy hooks')
+  .action((name: string | undefined, args: { force?: boolean; hooks?: boolean }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    removeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, name, force: args.force, hooks: args.hooks });
   });
 
 program
   .command('merge')
+  .argument('[name]', 'Worktree name to merge')
   .description('Merge a worktree branch back to main')
-  .action((_args: unknown, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
-    mergeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose });
+  .option('--into <branch>', 'Target branch to merge into')
+  .option('--cleanup', 'Auto-remove worktree after merge')
+  .option('--no-hooks', 'Skip pre-destroy hooks during cleanup')
+  .action((name: string | undefined, args: { into?: string; cleanup?: boolean; hooks?: boolean }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    mergeWorktreeFlow({ verbose: !!cmd.parent?.opts?.()?.verbose, name, into: args.into, cleanup: args.cleanup, hooks: args.hooks });
   });
 
 program
   .command('home')
   .description('Return to the main repository')
-  .action(goHome);
+  .option('--delete', 'Delete the current worktree after returning home')
+  .option('--no-hooks', 'Skip pre-destroy hooks when using --delete')
+  .action((args: { delete?: boolean; hooks?: boolean }, cmd: { parent?: { opts?: () => { verbose?: boolean } } }) => {
+    goHome({ delete: args.delete, hooks: args.hooks, verbose: !!cmd.parent?.opts?.()?.verbose });
+  });
 
 program
   .command('go [name]')
@@ -85,13 +98,16 @@ program.action(async () => {
 program.on('--help', () => {
   spacer();
   console.log('Examples:');
-  console.log(`  ${colors.muted('$')} wt              ${colors.muted('# Interactive menu')}`);
-  console.log(`  ${colors.muted('$')} wt new          ${colors.muted('# Create new worktree')}`);
-  console.log(`  ${colors.muted('$')} wt list         ${colors.muted('# List all worktrees')}`);
-  console.log(`  ${colors.muted('$')} wt go feature-x ${colors.muted('# Jump to worktree')}`);
-  console.log(`  ${colors.muted('$')} wt merge        ${colors.muted('# Merge worktree to main')}`);
-  console.log(`  ${colors.muted('$')} wt home         ${colors.muted('# Return to main repo')}`);
-  console.log(`  ${colors.muted('$')} wt setup        ${colors.muted('# Configure shell integration')}`);
+  console.log(`  ${colors.muted('$')} wt                                ${colors.muted('# Interactive menu')}`);
+  console.log(`  ${colors.muted('$')} wt new                            ${colors.muted('# Create new worktree (interactive)')}`);
+  console.log(`  ${colors.muted('$')} wt new my-feature --from main     ${colors.muted('# Create worktree (non-interactive)')}`);
+  console.log(`  ${colors.muted('$')} wt list                           ${colors.muted('# List all worktrees')}`);
+  console.log(`  ${colors.muted('$')} wt go feature-x                   ${colors.muted('# Jump to worktree')}`);
+  console.log(`  ${colors.muted('$')} wt merge my-wt --into main        ${colors.muted('# Merge worktree to branch')}`);
+  console.log(`  ${colors.muted('$')} wt rm my-wt --force               ${colors.muted('# Remove worktree without prompts')}`);
+  console.log(`  ${colors.muted('$')} wt home                           ${colors.muted('# Return to main repo')}`);
+  console.log(`  ${colors.muted('$')} wt home --delete                  ${colors.muted('# Go home and delete current worktree')}`);
+  console.log(`  ${colors.muted('$')} wt setup                          ${colors.muted('# Configure shell integration')}`);
   spacer();
 });
 

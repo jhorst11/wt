@@ -60,6 +60,17 @@ function handlePromptError(err: unknown): void {
   throw err;
 }
 
+function findWorktreeByName(
+  worktrees: Array<{ name: string; path: string; branch: string }>,
+  name: string,
+): { name: string; path: string; branch: string } | null {
+  const exact = worktrees.find((wt) => wt.name === name);
+  if (exact) return exact;
+  const partial = worktrees.filter((wt) => wt.name.includes(name));
+  if (partial.length === 1) return partial[0];
+  return null;
+}
+
 async function ensureGitRepo(): Promise<void> {
   if (!(await isGitRepo())) {
     error('Not in a git repository');
@@ -213,148 +224,171 @@ export async function createWorktreeFlow(options: CommandOptions = {}): Promise<
   const currentBranch = await getCurrentBranch();
   const isDetached = !currentBranch || currentBranch === 'HEAD';
 
+  // Non-interactive mode: name + from provided
+  const nonInteractive = !!(options.name && options.from);
+
   try {
-    // Step 1: Choose source type
-    const sourceChoices: Array<{ name: string; value: string; description: string }> = [];
-
-    if (!isDetached && currentBranch) {
-      sourceChoices.push({
-        name: `${icons.branch}  Current branch (${colors.branch(currentBranch)})`,
-        value: 'current',
-        description: 'Create from your current branch',
-      });
-    }
-
-    sourceChoices.push(
-      {
-        name: `${icons.local}  Local branch`,
-        value: 'local',
-        description: 'Choose from existing local branches',
-      },
-      {
-        name: `${icons.remote}  Remote branch`,
-        value: 'remote',
-        description: 'Choose from remote branches',
-      },
-      {
-        name: `${icons.sparkles}  New branch`,
-        value: 'new',
-        description: 'Create a fresh branch from a base',
-      },
-    );
-
-    const sourceType = await select({
-      message: 'What do you want to base your worktree on?',
-      choices: sourceChoices,
-      theme: {
-        prefix: icons.tree,
-      },
-    });
-
     let baseBranch: string | null = null;
     let branchName: string | null = null;
     let worktreeName: string | null = null;
 
-    if (sourceType === 'current') {
-      baseBranch = currentBranch;
-    } else if (sourceType === 'local') {
-      const branches = await getLocalBranches();
-      if (branches.length === 0) {
-        error('No local branches found');
+    if (nonInteractive) {
+      worktreeName = options.name!.trim().replace(/ /g, '-');
+      baseBranch = options.from!;
+
+      if (!isValidBranchName(worktreeName)) {
+        error(`Invalid worktree name: "${worktreeName}"`);
         return;
       }
 
-      const branchChoices = branches.map((b) => ({
-        name: formatBranchChoice(b.name, 'local'),
-        value: b.name,
-        description: b.isCurrent ? '(current)' : undefined,
-      }));
+      branchName = buildBranchName(worktreeName, config);
+    } else {
+      // Step 1: Choose source type
+      const sourceChoices: Array<{ name: string; value: string; description: string }> = [];
 
-      baseBranch = await select({
-        message: 'Select a local branch:',
-        choices: branchChoices,
-        theme: { prefix: icons.local },
-      });
-    } else if (sourceType === 'remote') {
-      const spinner = ora({
-        text: 'Fetching remote branches...',
-        color: 'magenta',
-      }).start();
-
-      const remoteBranches = await getRemoteBranches();
-      spinner.stop();
-
-      if (remoteBranches.length === 0) {
-        error('No remote branches found');
-        return;
+      if (!isDetached && currentBranch) {
+        sourceChoices.push({
+          name: `${icons.branch}  Current branch (${colors.branch(currentBranch)})`,
+          value: 'current',
+          description: 'Create from your current branch',
+        });
       }
 
-      // Use search for large branch lists
-      if (remoteBranches.length > 10) {
-        baseBranch = await search({
-          message: 'Search for a remote branch:',
-          source: async (term: string | undefined) => {
-            const filtered = term
-              ? remoteBranches.filter((b) => b.name.toLowerCase().includes(term.toLowerCase()))
-              : remoteBranches.slice(0, 15);
-            return filtered.map((b) => ({
+      sourceChoices.push(
+        {
+          name: `${icons.local}  Local branch`,
+          value: 'local',
+          description: 'Choose from existing local branches',
+        },
+        {
+          name: `${icons.remote}  Remote branch`,
+          value: 'remote',
+          description: 'Choose from remote branches',
+        },
+        {
+          name: `${icons.sparkles}  New branch`,
+          value: 'new',
+          description: 'Create a fresh branch from a base',
+        },
+      );
+
+      if (options.from) {
+        baseBranch = options.from;
+      } else {
+        const sourceType = await select({
+          message: 'What do you want to base your worktree on?',
+          choices: sourceChoices,
+          theme: {
+            prefix: icons.tree,
+          },
+        });
+
+        if (sourceType === 'current') {
+          baseBranch = currentBranch;
+        } else if (sourceType === 'local') {
+          const branches = await getLocalBranches();
+          if (branches.length === 0) {
+            error('No local branches found');
+            return;
+          }
+
+          const branchChoices = branches.map((b) => ({
+            name: formatBranchChoice(b.name, 'local'),
+            value: b.name,
+            description: b.isCurrent ? '(current)' : undefined,
+          }));
+
+          baseBranch = await select({
+            message: 'Select a local branch:',
+            choices: branchChoices,
+            theme: { prefix: icons.local },
+          });
+        } else if (sourceType === 'remote') {
+          const spinner = ora({
+            text: 'Fetching remote branches...',
+            color: 'magenta',
+          }).start();
+
+          const remoteBranches = await getRemoteBranches();
+          spinner.stop();
+
+          if (remoteBranches.length === 0) {
+            error('No remote branches found');
+            return;
+          }
+
+          // Use search for large branch lists
+          if (remoteBranches.length > 10) {
+            baseBranch = await search({
+              message: 'Search for a remote branch:',
+              source: async (term: string | undefined) => {
+                const filtered = term
+                  ? remoteBranches.filter((b) => b.name.toLowerCase().includes(term.toLowerCase()))
+                  : remoteBranches.slice(0, 15);
+                return filtered.map((b) => ({
+                  name: formatBranchChoice(b.name, 'remote'),
+                  value: `origin/${b.name}`,
+                }));
+              },
+              theme: { prefix: icons.remote },
+            });
+          } else {
+            const branchChoices = remoteBranches.map((b) => ({
               name: formatBranchChoice(b.name, 'remote'),
               value: `origin/${b.name}`,
             }));
-          },
-          theme: { prefix: icons.remote },
-        });
+
+            baseBranch = await select({
+              message: 'Select a remote branch:',
+              choices: branchChoices,
+              theme: { prefix: icons.remote },
+            });
+          }
+        } else if (sourceType === 'new') {
+          const branches = await getAllBranches();
+          if (branches.all.length === 0) {
+            error('No branches found. Make sure you have at least one commit.');
+            return;
+          }
+
+          const allChoices = branches.all.map((b) => ({
+            name: formatBranchChoice(b.name, b.type || 'local'),
+            value: b.type === 'remote' ? `origin/${b.name}` : b.name,
+          }));
+
+          baseBranch = await select({
+            message: 'Select base branch for your new branch:',
+            choices: allChoices,
+            theme: { prefix: icons.branch },
+          });
+        }
+      }
+
+      if (options.name) {
+        worktreeName = options.name.trim().replace(/ /g, '-');
       } else {
-        const branchChoices = remoteBranches.map((b) => ({
-          name: formatBranchChoice(b.name, 'remote'),
-          value: `origin/${b.name}`,
-        }));
+        // Step 2: Get worktree name
+        spacer();
 
-        baseBranch = await select({
-          message: 'Select a remote branch:',
-          choices: branchChoices,
-          theme: { prefix: icons.remote },
+        worktreeName = await input({
+          message: 'Worktree name (also used as directory and branch name):',
+          theme: { prefix: icons.folder },
+          validate: (value: string) => {
+            if (!value.trim()) return 'Name is required';
+            if (!isValidBranchName(value.trim())) return 'Invalid name (avoid spaces and special characters)';
+            return true;
+          },
+          transformer: (value: string) => colors.highlight(value),
         });
-      }
-    } else if (sourceType === 'new') {
-      const branches = await getAllBranches();
-      if (branches.all.length === 0) {
-        error('No branches found. Make sure you have at least one commit.');
-        return;
+
+        worktreeName = worktreeName.trim().replace(/ /g, '-');
       }
 
-      const allChoices = branches.all.map((b) => ({
-        name: formatBranchChoice(b.name, b.type || 'local'),
-        value: b.type === 'remote' ? `origin/${b.name}` : b.name,
-      }));
-
-      baseBranch = await select({
-        message: 'Select base branch for your new branch:',
-        choices: allChoices,
-        theme: { prefix: icons.branch },
-      });
+      // Build branch name with hierarchical config resolution
+      branchName = buildBranchName(worktreeName, config);
     }
 
-    // Step 2: Get worktree name
-    spacer();
-
-    worktreeName = await input({
-      message: 'Worktree name (also used as directory and branch name):',
-      theme: { prefix: icons.folder },
-      validate: (value: string) => {
-        if (!value.trim()) return 'Name is required';
-        if (!isValidBranchName(value.trim())) return 'Invalid name (avoid spaces and special characters)';
-        return true;
-      },
-      transformer: (value: string) => colors.highlight(value),
-    });
-
-    worktreeName = worktreeName.trim().replace(/ /g, '-');
-
-    // Build branch name with hierarchical config resolution
-    branchName = buildBranchName(worktreeName, config);
-
-    // Step 3: Confirm
+    // Show summary and confirm (skip confirmation in non-interactive mode)
     spacer();
     divider();
     info(`Worktree: ${colors.highlight(worktreeName)}`);
@@ -372,18 +406,20 @@ export async function createWorktreeFlow(options: CommandOptions = {}): Promise<
     divider();
     spacer();
 
-    const confirmed = await confirm({
-      message: 'Create this worktree?',
-      default: true,
-      theme: { prefix: icons.tree },
-    });
+    if (!nonInteractive) {
+      const confirmed = await confirm({
+        message: 'Create this worktree?',
+        default: true,
+        theme: { prefix: icons.tree },
+      });
 
-    if (!confirmed) {
-      warning('Cancelled');
-      return;
+      if (!confirmed) {
+        warning('Cancelled');
+        return;
+      }
     }
 
-    // Step 4: Create worktree
+    // Create worktree
     spacer();
     const spinner = ora({
       text: 'Creating worktree...',
@@ -534,31 +570,47 @@ export async function removeWorktreeFlow(options: CommandOptions = {}): Promise<
   }
 
   try {
-    const choices: Array<{ name: string; value: { name: string; path: string; branch: string } | null; description?: string }> = worktrees.map((wt) => {
-      const isCurrent = currentPath === wt.path || currentPath.startsWith(wt.path + '/');
-      const currentLabel = isCurrent ? colors.warning(' (you are here)') : '';
-      const wtColor = getWorktreeColor(repoRoot, wt.name);
-      return {
-        name: formatWorktreeChoice(wt, wtColor) + currentLabel,
-        value: wt,
-        description: wt.path,
-      };
-    });
+    let selected: { name: string; path: string; branch: string } | null = null;
 
-    choices.push({
-      name: `${colors.muted(icons.cross + '  Cancel')}`,
-      value: null as unknown as { name: string; path: string; branch: string },
-    });
+    if (options.name) {
+      // Non-interactive: find by name
+      selected = findWorktreeByName(worktrees, options.name);
+      if (!selected) {
+        error(`Worktree "${options.name}" not found`);
+        spacer();
+        info('Available worktrees:');
+        worktrees.forEach((wt) => listItem(`${wt.name} ${colors.muted(`→ ${wt.branch}`)}`));
+        spacer();
+        return;
+      }
+    } else {
+      // Interactive selection
+      const choices: Array<{ name: string; value: { name: string; path: string; branch: string } | null; description?: string }> = worktrees.map((wt) => {
+        const isCurrent = currentPath === wt.path || currentPath.startsWith(wt.path + '/');
+        const currentLabel = isCurrent ? colors.warning(' (you are here)') : '';
+        const wtColor = getWorktreeColor(repoRoot, wt.name);
+        return {
+          name: formatWorktreeChoice(wt, wtColor) + currentLabel,
+          value: wt,
+          description: wt.path,
+        };
+      });
 
-    const selected = await select<{ name: string; path: string; branch: string } | null>({
-      message: 'Select worktree to remove:',
-      choices,
-      theme: { prefix: icons.trash },
-    });
+      choices.push({
+        name: `${colors.muted(icons.cross + '  Cancel')}`,
+        value: null as unknown as { name: string; path: string; branch: string },
+      });
 
-    if (!selected) {
-      info('Cancelled');
-      return;
+      selected = await select<{ name: string; path: string; branch: string } | null>({
+        message: 'Select worktree to remove:',
+        choices,
+        theme: { prefix: icons.trash },
+      });
+
+      if (!selected) {
+        info('Cancelled');
+        return;
+      }
     }
 
     // Warn if user is inside the worktree they're removing
@@ -575,55 +627,65 @@ export async function removeWorktreeFlow(options: CommandOptions = {}): Promise<
     warning(`${colorDot} This will remove: ${colors.path(selected.path)}`);
     const preDestroyHooks = config.hooks?.['pre-destroy'];
     if (preDestroyHooks?.length) {
-      info(`Hooks:    ${colors.muted(`pre-destroy (${preDestroyHooks.length} command${preDestroyHooks.length === 1 ? '' : 's'}) will run first`)}`);
+      if (options.hooks === false) {
+        info(`Hooks:    ${colors.muted('skipped (--no-hooks)')}`);
+      } else {
+        info(`Hooks:    ${colors.muted(`pre-destroy (${preDestroyHooks.length} command${preDestroyHooks.length === 1 ? '' : 's'}) will run first`)}`);
+      }
     }
     spacer();
 
-    const confirmed = await confirm({
-      message: `Are you sure you want to remove "${selected.name}"?`,
-      default: false,
-      theme: { prefix: icons.warning },
-    });
+    if (!options.force) {
+      const confirmed = await confirm({
+        message: `Are you sure you want to remove "${selected.name}"?`,
+        default: false,
+        theme: { prefix: icons.warning },
+      });
 
-    if (!confirmed) {
-      info('Cancelled');
-      return;
+      if (!confirmed) {
+        info('Cancelled');
+        return;
+      }
     }
 
     // Run pre-destroy hooks
-    const preDestroyCommands = config.hooks?.['pre-destroy'];
-    if (preDestroyCommands && preDestroyCommands.length > 0) {
-      spacer();
-      const hookSpinner = ora({
-        text: 'Running pre-destroy hooks...',
-        color: 'magenta',
-      }).start();
+    if (options.hooks !== false) {
+      const preDestroyCommands = config.hooks?.['pre-destroy'];
+      if (preDestroyCommands && preDestroyCommands.length > 0) {
+        spacer();
+        const hookSpinner = ora({
+          text: 'Running pre-destroy hooks...',
+          color: 'magenta',
+        }).start();
 
-      const hookResults = await runHooks(
-        'pre-destroy',
-        config,
-        { source: repoRoot, path: selected.path, branch: selected.branch, name: selected.name, color: getWorktreeColor(repoRoot, selected.name) },
-        {
-          verbose: options.verbose,
-          onCommandStart: (cmd: string, i: number, total: number) => {
-            hookSpinner.text = total > 1
-              ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
-              : `Running pre-destroy hooks... (${cmd})`;
-          },
-        }
-      );
+        const hookResults = await runHooks(
+          'pre-destroy',
+          config,
+          { source: repoRoot, path: selected.path, branch: selected.branch, name: selected.name, color: getWorktreeColor(repoRoot, selected.name) },
+          {
+            verbose: options.verbose,
+            onCommandStart: (cmd: string, i: number, total: number) => {
+              hookSpinner.text = total > 1
+                ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
+                : `Running pre-destroy hooks... (${cmd})`;
+            },
+          }
+        );
 
-      const failed = hookResults.filter((r) => !r.success);
-      if (failed.length === 0) {
-        hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
-      } else {
-        hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
-        for (const f of failed) {
-          warning(`Hook failed: ${colors.muted(f.command)}`);
-          if (f.error) info(colors.muted(f.error));
+        const failed = hookResults.filter((r) => !r.success);
+        if (failed.length === 0) {
+          hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
+        } else {
+          hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+          for (const f of failed) {
+            warning(`Hook failed: ${colors.muted(f.command)}`);
+            if (f.error) info(colors.muted(f.error));
+          }
         }
+        spacer();
       }
-      spacer();
+    } else {
+      info(colors.muted('Skipping pre-destroy hooks (--no-hooks)'));
     }
 
     const spinner = ora({
@@ -634,8 +696,11 @@ export async function removeWorktreeFlow(options: CommandOptions = {}): Promise<
     try {
       // First try normal remove, then force if needed
       try {
-        await removeWorktree(selected.path, false);
+        await removeWorktree(selected.path, !!options.force);
       } catch {
+        if (options.force) {
+          throw new Error('Force remove failed');
+        }
         // Stop spinner before showing interactive prompt
         spinner.stop();
 
@@ -708,93 +773,122 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
     return;
   }
 
+  // Determine if we have enough args for non-interactive merge
+  const nonInteractive = !!(options.name && options.into);
+
   try {
-    // Select worktree to merge
-    const wtChoices: Array<{ name: string; value: { name: string; path: string; branch: string } | null; description?: string }> = worktrees.map((wt) => {
-      const wtColor = getWorktreeColor(repoRoot, wt.name);
-      return {
-        name: formatWorktreeChoice(wt, wtColor),
-        value: wt,
-        description: wt.path,
-      };
-    });
+    let selectedWt: { name: string; path: string; branch: string } | null = null;
+    let targetBranch: string | null = null;
 
-    wtChoices.push({
-      name: `${colors.muted(icons.cross + '  Cancel')}`,
-      value: null as unknown as { name: string; path: string; branch: string },
-    });
-
-    const selectedWt = await select<{ name: string; path: string; branch: string } | null>({
-      message: 'Select worktree branch to merge:',
-      choices: wtChoices,
-      theme: { prefix: '🔀' },
-    });
-
-    if (!selectedWt) {
-      info('Cancelled');
-      return;
-    }
-
-    // Select target branch
-    const mainBranch = await getMainBranch(mainPath || repoRoot);
-    const currentBranch = await getCurrentBranch();
-    const localBranches = await getLocalBranches(mainPath || repoRoot);
-
-    const targetChoices: Array<{ name: string; value: string }> = [];
-
-    // Add main branch first if it exists
-    if (localBranches.some(b => b.name === mainBranch)) {
-      targetChoices.push({
-        name: `${icons.home}  ${colors.branch(mainBranch)} ${colors.muted('(main branch)')}`,
-        value: mainBranch,
+    if (options.name) {
+      // Find worktree by name
+      selectedWt = findWorktreeByName(worktrees, options.name);
+      if (!selectedWt) {
+        error(`Worktree "${options.name}" not found`);
+        spacer();
+        info('Available worktrees:');
+        worktrees.forEach((wt) => listItem(`${wt.name} ${colors.muted(`→ ${wt.branch}`)}`));
+        spacer();
+        return;
+      }
+    } else {
+      // Select worktree to merge
+      const wtChoices: Array<{ name: string; value: { name: string; path: string; branch: string } | null; description?: string }> = worktrees.map((wt) => {
+        const wtColor = getWorktreeColor(repoRoot, wt.name);
+        return {
+          name: formatWorktreeChoice(wt, wtColor),
+          value: wt,
+          description: wt.path,
+        };
       });
-    }
 
-    // Add current branch if different and we're at home
-    if (isAtHome && currentBranch && currentBranch !== mainBranch && currentBranch !== 'HEAD') {
-      targetChoices.push({
-        name: `${icons.pointer}  ${colors.branch(currentBranch)} ${colors.muted('(current)')}`,
-        value: currentBranch,
+      wtChoices.push({
+        name: `${colors.muted(icons.cross + '  Cancel')}`,
+        value: null as unknown as { name: string; path: string; branch: string },
       });
-    }
 
-    // Add other branches (excluding the source worktree branch to prevent merging into itself)
-    for (const branch of localBranches) {
-      if (branch.name !== mainBranch && branch.name !== currentBranch && branch.name !== selectedWt.branch) {
-        targetChoices.push({
-          name: `${icons.branch}  ${colors.branch(branch.name)}`,
-          value: branch.name,
-        });
+      selectedWt = await select<{ name: string; path: string; branch: string } | null>({
+        message: 'Select worktree branch to merge:',
+        choices: wtChoices,
+        theme: { prefix: '🔀' },
+      });
+
+      if (!selectedWt) {
+        info('Cancelled');
+        return;
       }
     }
 
-    if (targetChoices.length === 0) {
-      error('No target branches available to merge into');
+    if (options.into) {
+      targetBranch = options.into;
+    } else {
+      // Select target branch
+      const mainBranch = await getMainBranch(mainPath || repoRoot);
+      const currentBranch = await getCurrentBranch();
+      const localBranches = await getLocalBranches(mainPath || repoRoot);
+
+      const targetChoices: Array<{ name: string; value: string }> = [];
+
+      // Add main branch first if it exists
+      if (localBranches.some(b => b.name === mainBranch)) {
+        targetChoices.push({
+          name: `${icons.home}  ${colors.branch(mainBranch)} ${colors.muted('(main branch)')}`,
+          value: mainBranch,
+        });
+      }
+
+      // Add current branch if different and we're at home
+      if (isAtHome && currentBranch && currentBranch !== mainBranch && currentBranch !== 'HEAD') {
+        targetChoices.push({
+          name: `${icons.pointer}  ${colors.branch(currentBranch)} ${colors.muted('(current)')}`,
+          value: currentBranch,
+        });
+      }
+
+      // Add other branches (excluding the source worktree branch to prevent merging into itself)
+      for (const branch of localBranches) {
+        if (branch.name !== mainBranch && branch.name !== currentBranch && branch.name !== selectedWt.branch) {
+          targetChoices.push({
+            name: `${icons.branch}  ${colors.branch(branch.name)}`,
+            value: branch.name,
+          });
+        }
+      }
+
+      if (targetChoices.length === 0) {
+        error('No target branches available to merge into');
+        spacer();
+        return;
+      }
+
+      targetChoices.push({
+        name: `${colors.muted(icons.cross + '  Cancel')}`,
+        value: null as unknown as string,
+      });
+
       spacer();
-      return;
-    }
+      targetBranch = await select<string | null>({
+        message: `Merge ${colors.highlight(selectedWt.branch)} into:`,
+        choices: targetChoices,
+        theme: { prefix: icons.arrowRight },
+      });
 
-    targetChoices.push({
-      name: `${colors.muted(icons.cross + '  Cancel')}`,
-      value: null as unknown as string,
-    });
-
-    spacer();
-    const targetBranch = await select<string | null>({
-      message: `Merge ${colors.highlight(selectedWt.branch)} into:`,
-      choices: targetChoices,
-      theme: { prefix: icons.arrowRight },
-    });
-
-    if (!targetBranch) {
-      info('Cancelled');
-      return;
+      if (!targetBranch) {
+        info('Cancelled');
+        return;
+      }
     }
 
     // Check for uncommitted changes in main repo
     if (mainPath && await hasUncommittedChanges(mainPath)) {
       spacer();
       warning('Main repository has uncommitted changes!');
+
+      if (nonInteractive) {
+        error('Aborting: main repository has uncommitted changes. Commit or stash them first.');
+        return;
+      }
+
       const proceed = await confirm({
         message: 'Stash changes and continue?',
         default: false,
@@ -813,7 +907,7 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
       info('Changes stashed');
     }
 
-    // Confirm merge
+    // Confirm merge (skip in non-interactive mode)
     spacer();
     divider();
     const selectedColor = getWorktreeColor(repoRoot, selectedWt.name);
@@ -823,15 +917,17 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
     divider();
     spacer();
 
-    const confirmed = await confirm({
-      message: 'Proceed with merge?',
-      default: true,
-      theme: { prefix: '🔀' },
-    });
+    if (!nonInteractive) {
+      const confirmed = await confirm({
+        message: 'Proceed with merge?',
+        default: true,
+        theme: { prefix: '🔀' },
+      });
 
-    if (!confirmed) {
-      info('Cancelled');
-      return;
+      if (!confirmed) {
+        info('Cancelled');
+        return;
+      }
     }
 
     // Perform merge
@@ -846,49 +942,55 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
       spacer();
       success(`Merged ${colors.highlight(selectedWt.branch)} into ${colors.branch(targetBranch)}`);
 
-      // Ask about cleanup
-      spacer();
-      const cleanup = await confirm({
-        message: `Remove the worktree "${selectedWt.name}" now that it's merged?`,
-        default: false,
-        theme: { prefix: icons.trash },
-      });
+      // Cleanup: auto if --cleanup, prompt otherwise
+      const shouldCleanup = options.cleanup ?? (nonInteractive ? false : await (async () => {
+        spacer();
+        return confirm({
+          message: `Remove the worktree "${selectedWt!.name}" now that it's merged?`,
+          default: false,
+          theme: { prefix: icons.trash },
+        });
+      })());
 
-      if (cleanup) {
+      if (shouldCleanup) {
         // Run pre-destroy hooks before removing the worktree
-        const preDestroyCommands = config.hooks?.['pre-destroy'];
-        if (preDestroyCommands && preDestroyCommands.length > 0) {
-          spacer();
-          const hookSpinner = ora({
-            text: 'Running pre-destroy hooks...',
-            color: 'magenta',
-          }).start();
+        if (options.hooks !== false) {
+          const preDestroyCommands = config.hooks?.['pre-destroy'];
+          if (preDestroyCommands && preDestroyCommands.length > 0) {
+            spacer();
+            const hookSpinner = ora({
+              text: 'Running pre-destroy hooks...',
+              color: 'magenta',
+            }).start();
 
-          const hookResults = await runHooks(
-            'pre-destroy',
-            config,
-            { source: repoRoot, path: selectedWt.path, branch: selectedWt.branch, name: selectedWt.name, color: getWorktreeColor(repoRoot, selectedWt.name) },
-            {
-              verbose: options.verbose,
-              onCommandStart: (cmd: string, i: number, total: number) => {
-                hookSpinner.text = total > 1
-                  ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
-                  : `Running pre-destroy hooks... (${cmd})`;
-              },
-            }
-          );
+            const hookResults = await runHooks(
+              'pre-destroy',
+              config,
+              { source: repoRoot, path: selectedWt.path, branch: selectedWt.branch, name: selectedWt.name, color: getWorktreeColor(repoRoot, selectedWt.name) },
+              {
+                verbose: options.verbose,
+                onCommandStart: (cmd: string, i: number, total: number) => {
+                  hookSpinner.text = total > 1
+                    ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
+                    : `Running pre-destroy hooks... (${cmd})`;
+                },
+              }
+            );
 
-          const failed = hookResults.filter((r) => !r.success);
-          if (failed.length === 0) {
-            hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
-          } else {
-            hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
-            for (const f of failed) {
-              warning(`Hook failed: ${colors.muted(f.command)}`);
-              if (f.error) info(colors.muted(f.error));
+            const failed = hookResults.filter((r) => !r.success);
+            if (failed.length === 0) {
+              hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
+            } else {
+              hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+              for (const f of failed) {
+                warning(`Hook failed: ${colors.muted(f.command)}`);
+                if (f.error) info(colors.muted(f.error));
+              }
             }
+            spacer();
           }
-          spacer();
+        } else {
+          info(colors.muted('Skipping pre-destroy hooks (--no-hooks)'));
         }
 
         const cleanupSpinner = ora({
@@ -901,16 +1003,27 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
           removeWorktreeColor(repoRoot, selectedWt.name);
           cleanupSpinner.succeed(colors.success('Worktree removed'));
 
-          // Ask about deleting branch
-          const deleteBr = await confirm({
-            message: `Delete the branch "${selectedWt.branch}" too?`,
-            default: false,
-            theme: { prefix: icons.trash },
-          });
+          if (options.cleanup) {
+            // Non-interactive cleanup: also delete the branch
+            try {
+              await deleteBranch(selectedWt.branch, false, mainPath || repoRoot);
+              success(`Branch ${colors.branch(selectedWt.branch)} deleted`);
+            } catch {
+              // Branch deletion is best-effort in non-interactive mode
+              warning(`Could not delete branch ${colors.branch(selectedWt.branch)} (may not be fully merged)`);
+            }
+          } else {
+            // Ask about deleting branch
+            const deleteBr = await confirm({
+              message: `Delete the branch "${selectedWt.branch}" too?`,
+              default: false,
+              theme: { prefix: icons.trash },
+            });
 
-          if (deleteBr) {
-            await deleteBranch(selectedWt.branch, false, mainPath || repoRoot);
-            success(`Branch ${colors.branch(selectedWt.branch)} deleted`);
+            if (deleteBr) {
+              await deleteBranch(selectedWt.branch, false, mainPath || repoRoot);
+              success(`Branch ${colors.branch(selectedWt.branch)} deleted`);
+            }
           }
         } catch (err) {
           cleanupSpinner.fail('Failed to remove worktree');
@@ -940,7 +1053,7 @@ export async function mergeWorktreeFlow(options: CommandOptions = {}): Promise<v
   }
 }
 
-export async function goHome(): Promise<void> {
+export async function goHome(options: CommandOptions = {}): Promise<void> {
   await ensureGitRepo();
   const repoRoot = await getRepoRoot();
   if (!repoRoot) {
@@ -971,7 +1084,17 @@ export async function goHome(): Promise<void> {
     }
     console.log(`  ${colors.muted('Path:')} ${colors.path(mainPath)}`);
     spacer();
+
+    if (options.delete) {
+      warning('Cannot use --delete: you are not inside a worktree');
+    }
     return;
+  }
+
+  // If --delete, capture current worktree info before navigating home
+  const wtToDelete = options.delete ? currentWt : null;
+  if (options.delete && !wtToDelete) {
+    warning('Cannot use --delete: you are not inside a worktree');
   }
 
   spacer();
@@ -979,6 +1102,68 @@ export async function goHome(): Promise<void> {
   console.log(`  ${colors.muted('Path:')} ${colors.path(mainPath)}`);
   resetTabColor();
   showCdHint(mainPath);
+
+  // Delete the worktree we just left
+  if (wtToDelete) {
+    spacer();
+
+    // Run pre-destroy hooks
+    if (options.hooks !== false) {
+      const preDestroyCommands = config.hooks?.['pre-destroy'];
+      if (preDestroyCommands && preDestroyCommands.length > 0) {
+        const hookSpinner = ora({
+          text: 'Running pre-destroy hooks...',
+          color: 'magenta',
+        }).start();
+
+        const hookResults = await runHooks(
+          'pre-destroy',
+          config,
+          { source: repoRoot, path: wtToDelete.path, branch: wtToDelete.branch, name: wtToDelete.name, color: getWorktreeColor(repoRoot, wtToDelete.name) },
+          {
+            verbose: options.verbose,
+            onCommandStart: (cmd: string, i: number, total: number) => {
+              hookSpinner.text = total > 1
+                ? `Running pre-destroy hooks... (${i}/${total}: ${cmd})`
+                : `Running pre-destroy hooks... (${cmd})`;
+            },
+          }
+        );
+
+        const failed = hookResults.filter((r) => !r.success);
+        if (failed.length === 0) {
+          hookSpinner.succeed(colors.success(`Ran ${hookResults.length} pre-destroy hook${hookResults.length === 1 ? '' : 's'}`));
+        } else {
+          hookSpinner.warn(colors.warning(`${failed.length} of ${hookResults.length} hook${hookResults.length === 1 ? '' : 's'} failed`));
+          for (const f of failed) {
+            warning(`Hook failed: ${colors.muted(f.command)}`);
+            if (f.error) info(colors.muted(f.error));
+          }
+        }
+      }
+    } else {
+      info(colors.muted('Skipping pre-destroy hooks (--no-hooks)'));
+    }
+
+    const spinner = ora({
+      text: `Removing worktree "${wtToDelete.name}"...`,
+      color: 'yellow',
+    }).start();
+
+    try {
+      await removeWorktree(wtToDelete.path, true);
+      spinner.succeed(colors.success(`Worktree "${wtToDelete.name}" removed`));
+      const deletedColor = getWorktreeColor(repoRoot, wtToDelete.name);
+      const deletedColorDot = colorIndicator(deletedColor);
+      removeWorktreeColor(repoRoot, wtToDelete.name);
+      success(`${deletedColorDot} Removed ${colors.highlight(wtToDelete.name)}`);
+    } catch (err) {
+      spinner.fail(colors.error('Failed to remove worktree'));
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      error(errorMessage);
+    }
+    spacer();
+  }
 }
 
 export async function goToWorktree(name?: string): Promise<void> {

@@ -30,6 +30,15 @@ wt home         # Return to main repo
 wt remove       # Remove a worktree
 ```
 
+#### Shorthand (non-interactive)
+
+```bash
+wt new my-feature --from main     # Create worktree in one command
+wt rm my-feature --force           # Remove without prompts
+wt merge my-wt --into main --cleanup  # Merge and clean up
+wt home --delete                   # Go home and delete current worktree
+```
+
 ## Core Concepts
 
 ### Worktree Structure
@@ -253,12 +262,19 @@ For step-by-step workflows and best practices, see [workflows.md](references/wor
 | Command | Description |
 |---------|-------------|
 | `wt` | Open interactive menu |
-| `wt new` | Create a new worktree with prompts |
+| `wt new` | Create a new worktree (interactive) |
+| `wt new <name> --from <branch>` | Create a worktree (non-interactive) |
 | `wt new --no-hooks` | Create a new worktree, skipping post-create hooks |
 | `wt list` | Display all worktrees for current repo |
 | `wt go [name]` | Navigate to a worktree (requires shell integration) |
 | `wt home` | Return to main repository |
+| `wt home --delete` | Return home and delete the current worktree |
 | `wt remove` | Interactive worktree removal |
+| `wt rm <name> --force` | Remove a worktree without prompts |
+| `wt rm --no-hooks` | Remove a worktree, skipping pre-destroy hooks |
+| `wt merge` | Interactive merge flow |
+| `wt merge <name> --into <branch>` | Merge worktree branch (non-interactive) |
+| `wt merge <name> --into <branch> --cleanup` | Merge and auto-remove worktree |
 
 ## Hook Environment Variables
 

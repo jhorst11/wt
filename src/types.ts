@@ -50,6 +50,12 @@ export interface HookResult {
 export interface CommandOptions {
   verbose?: boolean;
   hooks?: boolean;
+  name?: string;
+  from?: string;
+  force?: boolean;
+  into?: string;
+  cleanup?: boolean;
+  delete?: boolean;
 }
 
 export interface WorktreeInfo {

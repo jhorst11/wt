@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/jhorst11/wt/compare/v2.1.0...v2.2.0) (2026-02-12)
+
+
+### Features
+
+* add shorthand non-interactive CLI arguments ([ea51178](https://github.com/jhorst11/wt/commit/ea511785bd9cd581989af176bdcd601086c89d1a))
+
 # [2.1.0](https://github.com/jhorst11/wt/compare/v2.0.3...v2.1.0) (2026-02-12)
 
 

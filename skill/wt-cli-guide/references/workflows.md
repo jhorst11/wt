@@ -152,6 +152,67 @@ This guide covers practical workflows for using `wt` effectively in different sc
 - Can run multiple dev servers in parallel
 - Great for context-heavy work
 
+## Rapid Multi-Feature Setup with Terminal Windows
+
+**Scenario:** Instantly set up multiple parallel workstreams, each in its own terminal.
+
+### Quick Start
+
+Create multiple worktrees and open each in a new terminal:
+
+```bash
+wt new feature-auth feature-api feature-ui --open
+```
+
+This creates 3 worktrees in parallel and opens 3 terminal windows.
+
+### With AI-Assisted Development
+
+Configure Claude Code to launch automatically:
+
+1. **Set up config (`~/.wt/config.json`):**
+   ```json
+   {
+     "openCommand": "claude"
+   }
+   ```
+
+2. **Create worktrees:**
+   ```bash
+   wt new feature-auth feature-api feature-ui --open
+   ```
+
+3. **Result:**
+   - 3 worktrees created in parallel
+   - 3 terminal windows opened
+   - Claude Code launched in each one
+   - Ready to start AI-assisted development on all features
+
+### Step-by-step Example
+
+```bash
+# From main repository
+cd ~/code/my-repo
+
+# Create three worktrees with Claude Code sessions
+wt new auth-refactor api-v2 new-dashboard --open
+
+# Each terminal now has:
+# - Its own directory (~/code/worktrees/my-repo/<name>)
+# - Its own branch
+# - Claude Code running and ready
+
+# When done, clean up
+wt remove  # Select worktrees to remove
+```
+
+### Benefits
+
+- **Instant parallel setup** - Create multiple workstreams in seconds
+- **AI on every branch** - Claude Code ready in each worktree
+- **No manual navigation** - Everything opens automatically
+- **Independent contexts** - Each Claude session has its own codebase state
+
 ## Integration with Hooks
 
 **Scenario:** Automatically set up environments (install deps, migrations, etc.) when creating worktrees.

@@ -6,6 +6,8 @@ export interface Config {
   hooks?: Record<string, string[]>;
   worktreeColors?: Record<string, string>;
   colorPalette?: string[];
+  /** Command to execute in new terminal windows when using --open flag (e.g., "claude" to launch Claude Code) */
+  openCommand?: string;
 }
 
 // Git types

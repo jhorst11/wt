@@ -12,6 +12,7 @@ const {
   isWrapperInstalled,
   checkWrapperInRcFile,
   showCdHint,
+  openTerminalWindow,
 } = await import('../dist/src/setup.js');
 
 // ─── detectShell ─────────────────────────────────────────
@@ -259,6 +260,22 @@ describe('showCdHint', () => {
     const testPath = '/some/test/path';
     // Should not throw
     assert.doesNotThrow(() => showCdHint(testPath));
+  });
+});
+
+// ─── openTerminalWindow ──────────────────────────────────
+// Note: We don't test openTerminalWindow with actual calls because it spawns
+// real terminal windows via AppleScript/spawn, causing side effects.
+// The function is designed to silently fail, so we just verify it's exported.
+
+describe('openTerminalWindow', () => {
+  it('is exported as a function', () => {
+    assert.equal(typeof openTerminalWindow, 'function');
+  });
+
+  it('accepts the expected parameters (type check only)', () => {
+    // Verify the function signature without actually calling it
+    assert.equal(openTerminalWindow.length, 1); // 1 required param (path), options is optional
   });
 });
 

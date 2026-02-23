@@ -151,6 +151,34 @@ describe('loadConfig', () => {
     const config = loadConfig(dir);
     assert.equal(config.worktreesDir, undefined);
   });
+
+  it('parses openCommand', () => {
+    const dir = makeRepo('with-open-command');
+    writeConfig(dir, { openCommand: 'claude' });
+    const config = loadConfig(dir);
+    assert.equal(config.openCommand, 'claude');
+  });
+
+  it('trims openCommand whitespace', () => {
+    const dir = makeRepo('with-open-command-whitespace');
+    writeConfig(dir, { openCommand: '  claude  ' });
+    const config = loadConfig(dir);
+    assert.equal(config.openCommand, 'claude');
+  });
+
+  it('ignores empty openCommand', () => {
+    const dir = makeRepo('empty-open-command');
+    writeConfig(dir, { openCommand: '   ' });
+    const config = loadConfig(dir);
+    assert.equal(config.openCommand, undefined);
+  });
+
+  it('ignores non-string openCommand', () => {
+    const dir = makeRepo('numeric-open-command');
+    writeConfig(dir, { openCommand: 123 });
+    const config = loadConfig(dir);
+    assert.equal(config.openCommand, undefined);
+  });
 });
 
 // ─── resolveConfig ────────────────────────────────────────
@@ -274,6 +302,37 @@ describe('resolveConfig', () => {
     const config = resolveConfig(outsideDir, repoDir);
     // Should use defaults since cwd is outside repo
     assert.equal(config.projectsDir, join(homedir(), 'projects'));
+  });
+
+  it('loads openCommand from config', () => {
+    const repoDir = makeRepo('repo-with-open-command');
+    writeConfig(repoDir, { openCommand: 'code .' });
+    const config = resolveConfig(repoDir, repoDir);
+    assert.equal(config.openCommand, 'code .');
+  });
+
+  it('child openCommand overrides parent openCommand', () => {
+    const repoDir = makeRepo('override-open-command');
+    const subDir = join(repoDir, 'subdir');
+    mkdirSync(subDir, { recursive: true });
+
+    writeConfig(repoDir, { openCommand: 'code .' });
+    writeConfig(subDir, { openCommand: 'claude' });
+
+    const config = resolveConfig(subDir, repoDir);
+    assert.equal(config.openCommand, 'claude');
+  });
+
+  it('inherits openCommand from parent when not overridden', () => {
+    const repoDir = makeRepo('inherit-open-command');
+    const subDir = join(repoDir, 'subdir');
+    mkdirSync(subDir, { recursive: true });
+
+    writeConfig(repoDir, { openCommand: 'cursor' });
+    writeConfig(subDir, { branchPrefix: 'feat/' });
+
+    const config = resolveConfig(subDir, repoDir);
+    assert.equal(config.openCommand, 'cursor');
   });
 });
 

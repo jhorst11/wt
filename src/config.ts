@@ -131,6 +131,7 @@ export function loadConfig(dirPath: string): Config {
     hooks: {},
     worktreeColors: {},
     colorPalette: undefined,
+    openCommand: undefined,
   };
 
   let raw: string | undefined;
@@ -197,6 +198,10 @@ export function loadConfig(dirPath: string): Config {
     if (validColors.length > 0) {
       result.colorPalette = validColors;
     }
+  }
+
+  if (typeof parsedObj.openCommand === 'string' && parsedObj.openCommand.trim()) {
+    result.openCommand = parsedObj.openCommand.trim();
   }
 
   return result;
@@ -271,6 +276,7 @@ function mergeConfigs(configs: Config[]): Config {
     hooks: {},
     worktreeColors: {},
     colorPalette: undefined,
+    openCommand: undefined,
   };
 
   for (const config of configs) {
@@ -297,6 +303,9 @@ function mergeConfigs(configs: Config[]): Config {
     }
     if (config.colorPalette !== undefined) {
       result.colorPalette = config.colorPalette;
+    }
+    if (config.openCommand !== undefined) {
+      result.openCommand = config.openCommand;
     }
   }
 
@@ -346,6 +355,7 @@ export function resolveConfig(cwd: string = process.cwd(), repoRoot: string, glo
     hooks: merged.hooks ?? defaults.hooks,
     worktreeColors: merged.worktreeColors ?? {},
     colorPalette: merged.colorPalette,
+    openCommand: merged.openCommand,
   };
 }
 

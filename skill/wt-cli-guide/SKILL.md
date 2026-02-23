@@ -24,6 +24,8 @@ cd /path/to/wt && npm link
 ```bash
 wt              # Open interactive menu
 wt new          # Create a new worktree
+wt new one two  # Create multiple worktrees in parallel
+wt new --open   # Create worktree and open in new terminal
 wt list         # List all worktrees
 wt go [name]    # Jump to a worktree
 wt home         # Return to main repo
@@ -254,10 +256,50 @@ For step-by-step workflows and best practices, see [workflows.md](references/wor
 |---------|-------------|
 | `wt` | Open interactive menu |
 | `wt new` | Create a new worktree with prompts |
+| `wt new one two three` | Create multiple worktrees in parallel |
+| `wt new --open` | Create worktree and open in new terminal window |
+| `wt new one two --open` | Create multiple worktrees and open each in new terminal |
 | `wt list` | Display all worktrees for current repo |
 | `wt go [name]` | Navigate to a worktree (requires shell integration) |
 | `wt home` | Return to main repository |
 | `wt remove` | Interactive worktree removal |
+
+### The `--open` Flag
+
+Use `--open` to automatically open new terminal windows for each created worktree:
+
+```bash
+# Create a single worktree and open it in a new terminal
+wt new feature-auth --open
+
+# Create multiple worktrees and open each in separate terminals
+wt new feature-auth feature-api feature-ui --open
+```
+
+This is useful for:
+- Starting parallel development across multiple features
+- Opening multiple Claude Code sessions simultaneously
+- Setting up review environments quickly
+
+### Automatic Command Execution
+
+Configure `openCommand` in your `.wt/config.json` to automatically run a command in each new terminal window:
+
+```json
+{
+  "openCommand": "claude"
+}
+```
+
+Now when you run `wt new feature-x --open`:
+1. Creates the worktree
+2. Opens a new terminal window in that directory
+3. Automatically runs `claude` in that terminal
+
+Other useful commands:
+- `"openCommand": "code ."` - Open VS Code
+- `"openCommand": "cursor ."` - Open Cursor
+- `"openCommand": "nvim"` - Open Neovim
 
 ## Hook Environment Variables
 

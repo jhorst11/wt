@@ -99,6 +99,31 @@ Shell commands executed before worktree removal. Useful for cleanup or validatio
 
 **Important:** Hook failures show warnings but don't prevent the operation. Worktree removal proceeds even if hooks fail.
 
+### `openCommand` (string)
+**Default:** none
+
+Command to execute in new terminal windows when using `wt new --open`. This is useful for automatically opening your preferred editor or IDE.
+
+```json
+{
+  "openCommand": "claude"
+}
+```
+
+**Examples:**
+- `"claude"` - Open Claude Code
+- `"code ."` - Open VS Code in current directory
+- `"cursor ."` - Open Cursor editor
+- `"nvim"` - Open Neovim
+- `"tmux new-session"` - Start a new tmux session
+
+When you run `wt new feature-x --open`:
+1. Creates the worktree
+2. Opens a new terminal window in the worktree directory
+3. Automatically runs the configured `openCommand`
+
+For multiple worktrees (`wt new one two three --open`), each gets its own terminal window with the command executed.
+
 ## Example Configurations
 
 ### Global Setup for Team
@@ -149,6 +174,25 @@ For specific directories needing custom behavior:
   }
 }
 ```
+
+### AI-Assisted Development Setup
+
+Open Claude Code automatically when creating worktrees:
+
+`~/.wt/config.json`
+
+```json
+{
+  "projectsDir": "$HOME/code",
+  "worktreesDir": "$HOME/code/worktrees",
+  "openCommand": "claude"
+}
+```
+
+Now `wt new feature-x --open` will:
+1. Create the worktree
+2. Open a new terminal
+3. Launch Claude Code in that directory
 
 ## Environment Variable Expansion
 
